@@ -25,9 +25,29 @@ async function comPrazo(url, opts, ms) {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
   try { return await fetch(url, {...opts, signal: ac.signal}); } finally { clearTimeout(t); }
 }
+// Ponte na nuvem (Cloudflare Worker na conta do Guilherme): ativa quando modo = "nuvem" e há URL e token.
+export function nuvem() {
+  const c = ler().grok;
+  return c.modo === "nuvem" && c.nuvem?.url && c.nuvem?.token ? {url: c.nuvem.url.replace(/\/$/, ""), token: c.nuvem.token} : null;
+}
+export async function nuvemApi(rota, opts = {}, ms = 20000) {
+  const n = nuvem();
+  if (!n) throw Object.assign(new Error("Ponte na nuvem não configurada (Canais)"), {code: "PONTE_OFF"});
+  let r;
+  try { r = await comPrazo(n.url + rota, {...opts, headers: {...(opts.headers || {}), Authorization: "Bearer " + n.token}}, ms); }
+  catch { throw Object.assign(new Error("Ponte na nuvem fora de alcance (sem internet?)"), {code: "PONTE_OFF"}); }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Error("Token do app errado (Canais > Ponte na nuvem)");
+  return Object.assign(j, {_status: r.status});
+}
 // Saúde da ponte: {ligada, ...health} ou {ligada:false}
 export async function saude() {
   const c = ler().grok;
+  if (c.modo === "nuvem") {
+    const n = nuvem(); if (!n) return {ligada: false, modo: "nuvem"};
+    try { const r = await comPrazo(n.url + "/health", {}, 5000); const j = await r.json(); return {ligada: !!j.ok, modo: "nuvem", ...j}; }
+    catch { return {ligada: false, modo: "nuvem"}; }
+  }
   if (c.modo !== "ponte") return {ligada: false, modo: "direto"};
   try { const r = await comPrazo(c.ponte.replace(/\/$/, "") + "/health", {}, 2500); const j = await r.json(); return {ligada: !!j.ok, ...j}; }
   catch { return {ligada: false}; }
@@ -35,6 +55,12 @@ export async function saude() {
 export async function enviar(dados) {
   const c = ler().grok;
   const corpo = JSON.stringify(montarPayload(dados));
+  if (c.modo === "nuvem") {
+    const j = await nuvemApi("/pedido", {method: "POST", headers: {"Content-Type": "application/json"}, body: corpo}, 40000);
+    if (!j.ok) throw new Error(j.erro || "Chefe Geral respondeu HTTP " + (j.webhook_status || j._status));
+    return {camada: j.resposta?.camada || 4, status: j.resposta?.status || "andamento", resposta: j.resposta?.resposta || null,
+      detalhe: "Entregue ao Chefe Geral pela ponte na nuvem (HTTP " + j.webhook_status + "). A resposta chega no Telegram e em Arquivo."};
+  }
   if (c.modo === "ponte") {
     let r;
     try { r = await comPrazo(c.ponte.replace(/\/$/, "") + "/pedido", {method: "POST", headers: {"Content-Type": "application/json", ...(c.ponte_token ? {"X-Chefe-Token": c.ponte_token} : {})}, body: corpo}, 40000); }
@@ -57,6 +83,7 @@ export async function enviar(dados) {
 }
 export async function testar() {
   const s = await saude();
+  if (ler().grok.modo === "nuvem" && !s.ligada) throw new Error("Ponte na nuvem fora de alcance. Confira a URL em Canais.");
   if (ler().grok.modo === "ponte" && !s.ligada) throw new Error("Ponte do Mac desligada. No Mac: ./scripts/relay-status.sh");
   if (s.ligada && !s.chave_presente) throw new Error("Ponte ligada, mas sem chave. No Mac: ./scripts/set-webhook-key.sh");
   const r = await enviar({tipo: "teste", pedido: {id: "teste", texto: "Teste de conexão do app Chefe Geral. Pode ignorar.", modulo: "canais", canal: "app", criado_em: agoraISO()}});
@@ -79,6 +106,11 @@ export function linkTelegram(p, extra = {}) {
 // O áudio é apagado do Mac logo depois. Erro com code "PONTE_OFF" quando o Mac não está ao alcance.
 export async function transcreverNoMac(blob) {
   const c = ler().grok;
+  if (nuvem()) {
+    const j = await nuvemApi("/transcrever", {method: "POST", headers: {"Content-Type": (blob.type || "application/octet-stream").split(";")[0]}, body: blob}, 120000);
+    if (!j.ok) throw new Error(j.erro || "Transcrição na nuvem falhou (HTTP " + j._status + ")");
+    return j;
+  }
   let r;
   try { r = await fetch(c.ponte.replace(/\/$/, "") + "/transcrever", {method: "POST", headers: {"Content-Type": (blob.type || "application/octet-stream").split(";")[0]}, body: blob}); }
   catch { const e = new Error("Ponte do Mac fora de alcance"); e.code = "PONTE_OFF"; throw e; }

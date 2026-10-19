@@ -1,0 +1,26 @@
+// Testes de unidade (node test/unit.mjs): roteamento puro, sem rede.
+import assert from "node:assert/strict";
+globalThis.Buffer ??= (await import("node:buffer")).Buffer;
+const w = await import("../worker.js");
+const env = {ALLOWED_ORIGIN: "https://guilh-abc.github.io"};
+const R = o => new Request("https://x/health", {headers: o ? {Origin: o} : {}});
+assert.deepEqual(w.cors(R(), env), {});
+assert.equal(w.cors(R("https://evil.com"), env), null);
+assert.equal(w.cors(R("https://guilh-abc.github.io"), env)["Access-Control-Allow-Origin"], "https://guilh-abc.github.io");
+assert.ok(w.igual("abc", "abc")); assert.ok(!w.igual("abc", "abd")); assert.ok(!w.igual("", ""));
+assert.equal(w.classificar({text: "/start"}).acao, "start");
+assert.deepEqual(w.classificar({text: "/salvar oi mundo"}).texto, "oi mundo");
+const r1 = w.classificar({caption: "/reuniao Skylo", voice: {file_id: "F", duration: 9}});
+assert.ok(r1.reuniao); assert.equal(r1.texto, "Skylo"); assert.equal(r1.midia.tipo, "audio");
+assert.equal(w.classificar({document: {file_id: "D", file_name: "reuniao-x.txt", mime_type: "text/plain"}}).midia.tipo, "texto");
+assert.ok(w.classificar({document: {file_id: "D", file_name: "reuniao-x.txt"}}).reuniao);
+const j = w.classificar({text: '#reuniao {"id":"r1","transcricao":"abc"}'});
+assert.ok(j.reuniao); assert.equal(j.json.id, "r1");
+assert.equal(w.classificar({text: "prepara pauta"}).acao, "pedido");
+assert.equal(w.classificar({document: {file_id: "P", file_name: "x.pdf", mime_type: "application/pdf"}}).midia, null);
+const ctx = w.pontuar("Resume o que tenho sobre a Électrolux e Skylo", [{arquivo: "a/Electrolux.md", titulo: "Electrolux"}, {arquivo: "b.md", titulo: "Outra"}, {arquivo: "c/Skylo NTN.md", titulo: "Skylo NTN", tags: "electrolux"}, {arquivo: "Resume/x.md", titulo: "x"}]);
+assert.equal(ctx[0].arquivo, "c/Skylo NTN.md"); assert.equal(ctx.length, 2);
+const p = w.payloadBase("chefe-geral-nuvem-telegram", "pedido", "oi", "tg1", "pedidos", "telegram");
+for (const k of ["versao", "origem", "tipo", "enviado_em", "pedido", "anexos", "obsidian_context", "instrucoes"]) assert.ok(k in p, k);
+assert.match(w.agora(0), /^1969-12-31T21:00:00-03:00$/);
+console.log("unit: ok");

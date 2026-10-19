@@ -106,15 +106,19 @@ async function pedir(e) {
 let ponteAntes = null;
 async function verPonte() {
   const c = ler().grok, b = $("#ponte");
-  if (c.modo !== "ponte") { b.hidden = true; return; }
+  if (c.modo !== "ponte" && c.modo !== "nuvem") { b.hidden = true; return; }
   const {saude} = await import("../engines/grok-webhook.js");
   const s = await saude();
   definirPonte(s.ligada);
   if (pintarCelular()) { ponteAntes = false; return; }
   $("#form-pedir .primary").textContent = "Pedir";
-  b.hidden = false; b.className = "ponte " + (s.ligada ? "on" : "off"); b.title = "Ponte do Mac";
-  b.querySelector("span").textContent = "Ponte do Mac: " + (s.ligada ? "ligada" : "desligada");
-  $("#dica").textContent = s.ligada
+  const nome = c.modo === "nuvem" ? "Ponte na nuvem" : "Ponte do Mac";
+  b.hidden = false; b.className = "ponte " + (s.ligada ? "on" : "off"); b.title = nome;
+  b.querySelector("span").textContent = nome + ": " + (s.ligada ? "ligada" : c.modo === "nuvem" ? "fora do ar" : "desligada");
+  $("#dica").textContent = c.modo === "nuvem"
+    ? (s.ligada ? "Vai para o Chefe Geral pela ponte na nuvem, mesmo com o Mac desligado. A resposta chega no Telegram e em Arquivo; o Obsidian recebe tudo quando o Mac ligar."
+      : "Ponte na nuvem fora do ar ou sem internet. O pedido fica na fila e vai sozinho quando ela voltar.")
+    : s.ligada
     ? "Vai para o Chefe Geral pela ponte do Mac. Ele executa nas suas ferramentas e pede o seu OK antes de mandar algo a alguém ou mexer na agenda."
     : "Ponte do Mac desligada (no celular é normal). O pedido fica na fila e vai sozinho quando o Mac estiver ligado. Para ir já, use \"Abrir no Telegram\" em Pedidos.";
   if (s.ligada && ponteAntes !== true) {
@@ -162,7 +166,7 @@ $("#fala").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKe
 $(".tabs").innerHTML = NAV.map(id => `<button data-ir="${id}">${ico(id === "inicio" ? "casa" : id)}<span>${id === "inicio" ? "Início" : MODULOS.find(m => m.id === id).nome.split(" ")[0]}</span></button>`).join("");
 addEventListener("hashchange", rota);
 rota();
-if (ler().grok.modo === "ponte") pintarCelular();
+if (ler().grok.modo === "ponte") pintarCelular();  // modo nuvem: celular usa o app normalmente
 verPonte(); setInterval(verPonte, 20000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) verPonte(); });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});

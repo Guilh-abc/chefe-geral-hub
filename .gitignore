@@ -2,3 +2,7 @@ config/config.json
 *.log
 .DS_Store
 __pycache__/
+cloud/wrangler.local.toml
+cloud/.wrangler/
+cloud/test/.dev.vars
+.wrangler/

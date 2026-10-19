@@ -1,15 +1,26 @@
-# Ponte na nuvem (Cloudflare Worker). NÃO ATIVADA. Veja cloud/README.md antes de qualquer deploy.
+# Ponte do Chefe Geral na nuvem (Cloudflare Worker, plano grátis).
+# Publicada por scripts/nuvem-instalar.sh. Segredos só com `wrangler secret put` (nunca neste arquivo):
+#   WEBHOOK_KEY      valor completo do cabeçalho Authorization da rotina ("Bearer ...")
+#   TELEGRAM_TOKEN   token do @Chefegui_bot
+#   TELEGRAM_SECRET  segredo do setWebhook (gerado pelo instalador)
+#   APP_TOKEN        token do app e da ponte do Mac (gerado pelo instalador)
+#   RESPOSTA_TOKEN   token só para gravar respostas (box -> POST /resposta)
 name = "chefe-geral-ponte"
 main = "worker.js"
-compatibility_date = "2026-10-01"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [vars]
-# Valores não secretos. Os segredos vão com `wrangler secret put` (nunca neste arquivo).
 ALLOWED_ORIGIN = "https://guilh-abc.github.io"
-CHAT_ID = ""        # seu chat_id do Telegram (número). Só ele é atendido.
+WEBHOOK_URL = "https://api2.cursor.sh/automations/webhook/8fbc23ef-d920-5dc4-bbc5-ec16f15607d3"
+CHAT_ID = ""   # preenchido pelo instalador (seu chat_id, não é segredo)
 
-# Fila de mensagens e capturas para o app ler (opcional). Crie com: wrangler kv namespace create CHEFE
-# [[kv_namespaces]]
-# binding = "CHEFE"
-# id = "COLOQUE_O_ID_AQUI"
+[ai]
+binding = "AI"
+
+# O instalador troca o database_id pelo do banco criado na sua conta.
+[[d1_databases]]
+binding = "DB"
+database_name = "chefe-geral"
+database_id = "00000000-0000-0000-0000-000000000000"

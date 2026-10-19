@@ -1,0 +1,25 @@
+# Ponte do Chefe Geral na nuvem (Cloudflare Worker, plano grátis).
+# Publicada por scripts/nuvem-instalar.sh. Segredos só com `wrangler secret put` (nunca neste arquivo):
+#   WEBHOOK_KEY      valor completo do cabeçalho Authorization da rotina ("Bearer ...")
+#   TELEGRAM_TOKEN   token do @Chefegui_bot
+#   TELEGRAM_SECRET  segredo do setWebhook (gerado pelo instalador)
+#   APP_TOKEN        token do app e da ponte do Mac (gerado pelo instalador)
+#   RESPOSTA_TOKEN   token só para gravar respostas (box -> POST /resposta)
+name = "chefe-geral-ponte"
+main = "../worker.js"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGIN = "https://guilh-abc.github.io"
+WEBHOOK_URL = "http://127.0.0.1:9911/webhook"
+CHAT_ID = "42"
+TG_API = "http://127.0.0.1:9911"
+
+
+# O instalador troca o database_id pelo do banco criado na sua conta.
+[[d1_databases]]
+binding = "DB"
+database_name = "chefe-geral"
+database_id = "00000000-0000-0000-0000-000000000000"

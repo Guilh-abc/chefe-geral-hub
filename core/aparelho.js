@@ -22,7 +22,9 @@ export function definirPonte(ligada) {
   ponte = !!ligada;
   document.body.classList.toggle("celular", emCelular());
 }
-export const emCelular = () => pareceCelular() && ponte !== true;
+export const emCelular = () => pareceCelular() && ponte !== true && !nuvemAtiva();
+// Com a ponte na nuvem configurada, o celular usa o app normalmente (não abre o Telegram).
+export function nuvemAtiva() { const g = ler().grok; return g.modo === "nuvem" && !!(g.nuvem?.url && g.nuvem?.token); }
 // Abre o bot com o texto pronto. Chame direto no toque (sem await antes) para o navegador não bloquear.
 export function abrirBot(texto) {
   const u = linkBot(texto) || linkBot();

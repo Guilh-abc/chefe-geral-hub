@@ -44,6 +44,9 @@ Para `tipo: "teste"`: só confirmar o recebimento. Pedidos vindos do Telegram t�
 
 Resposta esperada: qualquer HTTP 2xx. Opcionalmente JSON `{"camada": 5, "status": "andamento", "resposta": "texto"}`; se vier `resposta`, o app mostra e marca o pedido como concluído.
 
+## Ponte na nuvem
+Pelo Worker (docs/nuvem.md), `origem` é `chefe-geral-nuvem-telegram` (bot) ou `chefe-geral-nuvem-app` (app). Voz chega já transcrita pelo Whisper da Cloudflare em `pedido.texto` e `anexos.transcricao`. `obsidian_context` vem do índice leve de títulos (`fonte: "indice-nuvem"`) ou vazio.
+
 ## obsidian_context
 Lista de até 3 trechos `{arquivo, score, trecho, fonte}`. O app preenche pela busca da ponte; se vier vazio, a própria ponte preenche antes de repassar.
 

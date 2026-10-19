@@ -1,0 +1,5 @@
+WEBHOOK_KEY="Bearer teste"
+TELEGRAM_TOKEN="1:fake"
+TELEGRAM_SECRET="sec"
+APP_TOKEN="app"
+RESPOSTA_TOKEN="resp"

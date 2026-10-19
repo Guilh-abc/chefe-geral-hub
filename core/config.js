@@ -2,7 +2,7 @@
 const K = "cg.ajustes.v1";
 export const PADRAO = {
   motor: "grok",                      // "grok" (Motor 1) ou "ollama" (Motor 2, experimental)
-  grok: {modo: "ponte", ponte: "http://127.0.0.1:8788", ponte_token: "", url: "", header: "Authorization", chave: ""},
+  grok: {modo: "ponte", ponte: "http://127.0.0.1:8788", ponte_token: "", nuvem: {url: "", token: ""}, url: "", header: "Authorization", chave: ""},
   ollama: {url: "http://127.0.0.1:11434", modelo: "llama3.2"},
   telegram: {token: "", chat_id: "", bot: ""},
   obsidian: {via: "ponte", url: "https://127.0.0.1:27124", chave: "", cofre: "", pasta: "Chefe Geral", captura: true},
@@ -24,5 +24,5 @@ export function gravar(patch) { const c = merge(ler(), patch); localStorage.setI
 export function semSegredos(c = ler()) {
   const x = structuredClone(c);
   x.grok.chave = x.grok.chave ? "(definida)" : ""; x.telegram.token = x.telegram.token ? "(definido)" : "";
-  x.obsidian.chave = x.obsidian.chave ? "(definida)" : ""; return x;
+  x.obsidian.chave = x.obsidian.chave ? "(definida)" : ""; if (x.grok.nuvem?.token) x.grok.nuvem.token = "(definido)"; return x;
 }

@@ -10,11 +10,15 @@ Uso:
 - Texto puro (sem parse_mode). Até 4096 caracteres vai como mensagem; acima disso vai como documento .md.
 - Toda mensagem leva o cabeçalho "Chefe Geral, resposta ao pedido <id>" e o botão "Guardando no Obsidian":
   a ponte do Mac encontra essas mensagens, grava em "Chefe Geral/Respostas" e troca o botão para "No Obsidian".
+- Nuvem (opcional): se ~/.config/chefegeral/nuvem.json tiver {"url", "token"} (token de resposta do Worker),
+  depois de enviar ao Telegram também grava a resposta na ponte na nuvem (POST /resposta). Falha ali não muda
+  o resultado do envio. Sem o arquivo, ou com --sem-nuvem, o comportamento é o mesmo de antes.
 - Saída: uma linha JSON {ok, modo, message_id} ou {ok:false, erro}. Código 0 em sucesso.
 """
 import argparse, json, os, re, sys, urllib.error, urllib.parse, urllib.request, uuid
 
 CFG = os.path.expanduser("~/.config/chefegeral/telegram.json")
+NUVEM = os.path.expanduser("~/.config/chefegeral/nuvem.json")
 LIMITE = 4096
 PREFIXO = "Chefe Geral, resposta ao pedido "
 HUB = "https://guilh-abc.github.io/chefe-geral-hub/#/arquivo"
@@ -60,11 +64,30 @@ def multipart(campos, nome_arq, conteudo):
     return b"".join(partes), f"multipart/form-data; boundary={b}"
 
 
+def para_nuvem(pid, titulo, texto, message_id):
+    """Grava a resposta no Worker. Retorna "ok", "sem_config" ou "erro: ..."; nunca levanta exceção."""
+    try:
+        n = json.load(open(NUVEM, encoding="utf-8"))
+        url, tok = (n.get("url") or "").rstrip("/"), (n.get("token") or "").strip()
+    except Exception:
+        return "sem_config"
+    if not (url.startswith("https://") and tok):
+        return "sem_config"
+    try:
+        corpo = json.dumps({"pedido_id": pid, "titulo": titulo, "texto": texto, "message_id": message_id}).encode("utf-8")
+        req = urllib.request.Request(url + "/resposta", data=corpo, headers={"Content-Type": "application/json", "Authorization": "Bearer " + tok})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return "ok" if 200 <= r.status < 300 else f"erro: HTTP {r.status}"
+    except Exception as e:
+        return "erro: " + limpar(e).replace(tok, "<token>")[:120]
+
+
 def main():
     ap = argparse.ArgumentParser(description="Resposta do Chefe Geral para o Telegram do Guilherme")
     ap.add_argument("--pedido-id", required=True)
     ap.add_argument("--titulo", default="")
     ap.add_argument("--arquivo", help="arquivo com o texto (senão, lê do stdin)")
+    ap.add_argument("--sem-nuvem", action="store_true", help="não grava a resposta na ponte na nuvem")
     ap.add_argument("--dry-run", action="store_true", help="não envia, só mostra o modo e o tamanho")
     a = ap.parse_args()
 
@@ -101,7 +124,12 @@ def main():
             nome = re.sub(r"[^\w.-]", "_", f"resposta-{pid}.md")
             corpo = f"{cab}\n\n# {titulo or 'Resposta ' + pid}\n\n{texto}\n"
             r = chamar(token, "sendDocument", multipart=multipart({"chat_id": chat_id, "caption": legenda, "reply_markup": BOTAO}, nome, corpo))
-        print(json.dumps({"ok": True, "modo": modo, "message_id": r.get("message_id")}, ensure_ascii=False))
+        saida = {"ok": True, "modo": modo, "message_id": r.get("message_id")}
+        if not a.sem_nuvem:
+            nv = para_nuvem(pid, titulo, texto, r.get("message_id"))
+            if nv != "sem_config":
+                saida["nuvem"] = nv
+        print(json.dumps(saida, ensure_ascii=False))
         return 0
     except Exception as e:
         print(json.dumps({"ok": False, "erro": limpar(e)[:300]}, ensure_ascii=False)); return 1

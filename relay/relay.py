@@ -25,6 +25,13 @@ A box manda cada resposta (cg-telegram-responder) com o botão "Guardando no Obs
 (lacunas e os próximos números) com editMessageReplyMarkup: a API devolve a mensagem inteira, a ponte
 troca o botão para "No Obsidian" e grava em "Chefe Geral/Respostas". Nada é exposto à internet.
 
+Modo nuvem (1.4): relay.json "modo": "nuvem" (padrão "local"). O Telegram passa a ir para o Worker
+(webhook), então a ponte PARA o long-poll e a sondagem de respostas. A cada minuto ela puxa do Worker
+(GET /sync, Bearer do nuvem.json) o que é novo e grava no Obsidian em Chefe Geral/ (Pedidos, Transcricoes,
+Respostas, Reunioes). Áudio que a nuvem não transcreveu é baixado e transcrito aqui no VoiceStudio.
+A cada 6 h manda ao Worker um índice leve (só caminho e título das notas da pasta Chefe Geral).
+Voltar: scripts/nuvem-desfazer.sh (ou "modo": "local" e reiniciar).
+
 Segredos (nunca no repositório, nunca no log), em ~/Library/Application Support/ChefeGeral/:
   webhook.key      valor completo do cabeçalho Authorization (ex.: "Bearer ..."), chmod 600
   telegram.token   token do BotFather, chmod 600
@@ -34,7 +41,7 @@ import json, os, re, shutil, subprocess, sys, threading, time, urllib.error, url
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.3"
+VERSAO = "1.4"
 HOME = os.path.expanduser("~")
 DIR = os.environ.get("CHEFE_DIR", os.path.join(HOME, "Library", "Application Support", "ChefeGeral"))
 LOGDIR = os.environ.get("CHEFE_LOGDIR", os.path.join(HOME, "Library", "Logs", "ChefeGeral"))
@@ -63,6 +70,8 @@ LOCAL_ORIGEM = re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$")
 LOCK = threading.Lock()
 ENVIO_LOCK = threading.Lock()   # a sondagem não roda enquanto a ponte está mandando mensagem
 RESP_ESTADO = os.path.join(DIR, "respostas-estado.json")
+NUVEM = os.path.join(DIR, "nuvem.json")             # {"url": "...", "token": "..."} chmod 600 (token do app)
+NUVEM_ESTADO = os.path.join(DIR, "nuvem-estado.json")
 RESP_LOCK = threading.Lock()
 RESP_PREFIXO = "Chefe Geral, resposta ao pedido "
 HUB_ARQUIVO = "https://guilh-abc.github.io/chefe-geral-hub/#/arquivo"
@@ -110,7 +119,12 @@ def cfg():
     c.setdefault("porta", 8788)
     c.setdefault("webhook_url", "")
     c.setdefault("chat_id", "")
+    c.setdefault("modo", "local")
     return c
+
+
+def modo_nuvem():
+    return cfg().get("modo") == "nuvem"
 
 
 def anexar_jsonl(path, obj):
@@ -655,8 +669,8 @@ def tratar_mensagem(m):
 def loop_telegram():
     while True:
         c = cfg()
-        if not (ler_segredo(TOKEN) and c["chat_id"]):
-            time.sleep(30)
+        if c.get("modo") == "nuvem" or not (ler_segredo(TOKEN) and c["chat_id"]):
+            time.sleep(30)  # modo nuvem: o Telegram entrega ao Worker (webhook); getUpdates daria conflito
             continue
         est = ler_json(ESTADO, {})
         try:
@@ -786,7 +800,7 @@ def loop_respostas():
     while True:
         try:
             c = cfg()
-            if ler_segredo(TOKEN) and c["chat_id"]:
+            if c.get("modo") != "nuvem" and ler_segredo(TOKEN) and c["chat_id"]:
                 with ENVIO_LOCK:
                     with RESP_LOCK:
                         e = resp_estado()
@@ -817,6 +831,113 @@ def loop_respostas():
             STATUS["respostas_erro"] = str(ex)[:200]
             log(f"respostas: {ex}")
         time.sleep(30)
+
+
+# ---------- Modo nuvem: sincroniza Worker -> Obsidian ----------
+NUVEM_MODULO = {"pedido": "pedidos", "resposta": "respostas", "transcricao": "transcricoes", "reuniao": "reunioes", "nota": "notas"}
+
+
+def nuvem_cfg():
+    n = ler_json(NUVEM, {})
+    return (n.get("url") or "").rstrip("/"), (n.get("token") or "").strip()
+
+
+def nuvem_req(rota, corpo=None, timeout=30):
+    url, tok = nuvem_cfg()
+    if not (url and tok):
+        raise RuntimeError("nuvem.json sem url ou token")
+    dados = json.dumps(corpo).encode() if corpo is not None else None
+    req = urllib.request.Request(url + rota, data=dados, headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def nuvem_nota(it):
+    """Converte um item do Worker numa nota do cofre (id do Worker: não duplica)."""
+    meta = it.get("meta") or {}
+    modulo = NUVEM_MODULO.get(it["tipo"], "pedidos")
+    if it["tipo"] == "pedido" and meta.get("modulo") in ("notas", "tarefas", "agenda"):
+        modulo = meta["modulo"]
+    corpo = it.get("texto") or ""
+    if it["tipo"] == "resposta" and meta.get("pedido_id"):
+        corpo = f"Pedido: {meta['pedido_id']}\n\n{corpo}"
+    origem = "nuvem-" + (meta.get("canal") or meta.get("origem") or "worker").replace("chefe-geral-nuvem-", "")
+    n = montar_nota(modulo, it.get("titulo") or modulo, corpo, "nuvem-" + it["id"], origem=origem, tags=("nuvem",))
+    return n
+
+
+def nuvem_pendente(it):
+    """Áudio que a nuvem não transcreveu: baixa pelo bot, transcreve no VoiceStudio e entrega como antes."""
+    meta = it.get("meta") or {}
+    pid = it["id"].replace("pend-", "")
+    arq = baixar(meta["file_id"], "nuvem-" + pid)
+    item = {"pid": pid, "arquivo": arq, "mime": meta.get("mime"), "legenda": meta.get("legenda") or "", "reuniao": bool(meta.get("reuniao")),
+            "modulo": "notas", "quando": agora()}
+    nuvem_req("/pendente/ok", {"id": it["id"], "texto": "assumido pela ponte do Mac"})
+    try:
+        entregar_audio(item, transcrever(arq, item["mime"]))
+    except STTFechado:
+        guardar_pendentes(pendentes() + [item])
+
+
+def nuvem_indice():
+    """Índice leve para contexto: só caminho e título das notas .md da pasta Chefe Geral (nada de conteúdo)."""
+    raiz, pasta = cofre()
+    if not raiz:
+        return 0
+    base = os.path.join(raiz, pasta)
+    notas = []
+    for d, subs, arqs in os.walk(base):
+        subs[:] = [x for x in subs if not x.startswith(".")]
+        for a in arqs:
+            if a.endswith(".md") and len(notas) < 5000:
+                rel = os.path.relpath(os.path.join(d, a), raiz)
+                notas.append({"arquivo": rel, "titulo": a[:-3], "tags": os.path.basename(d)})
+    nuvem_req("/indice", {"notas": notas}, timeout=60)
+    return len(notas)
+
+
+def nuvem_sincronizar():
+    est = ler_json(NUVEM_ESTADO, {"depois": 0})
+    total = 0
+    while True:
+        j = nuvem_req(f"/sync?depois={int(est.get('depois') or 0)}&limite=100")
+        itens = j.get("itens") or []
+        for it in itens:
+            try:
+                if it["tipo"] == "pendente":
+                    nuvem_pendente(it)
+                elif it["tipo"] in NUVEM_MODULO:
+                    guardar_seguro(nuvem_nota(it))
+                    if it["tipo"] in ("pedido", "reuniao"):
+                        anexar_jsonl(MSGS, {"id": it["id"], "quando": it.get("criado_em"), "texto": (it.get("texto") or "")[:2000], "tipo": it["tipo"], "canal": "nuvem"})
+            except Exception as e:
+                log(f"nuvem item {it.get('id')}: {e}")
+            est["depois"] = it["seq"]
+            total += 1
+        est["ultima"] = agora()
+        gravar_json(NUVEM_ESTADO, est)
+        if len(itens) < 100:
+            return total
+
+
+def loop_nuvem():
+    time.sleep(5)
+    ultimo_indice = 0
+    while True:
+        if modo_nuvem():
+            try:
+                n = nuvem_sincronizar()
+                if n:
+                    log(f"nuvem: {n} item(ns) gravado(s) no Obsidian")
+                STATUS["nuvem_erro"] = None
+                if time.time() - ultimo_indice > 6 * 3600:
+                    log(f"nuvem: índice com {nuvem_indice()} títulos enviado")
+                    ultimo_indice = time.time()
+            except Exception as e:
+                STATUS["nuvem_erro"] = re.sub(r"Bearer \S+", "Bearer <token>", str(e))[:200]
+                log(f"nuvem: {STATUS['nuvem_erro']}")
+        time.sleep(60)
 
 
 # ---------- Arquivo (viewer, SOMENTE LEITURA) ----------
@@ -1101,7 +1222,8 @@ class Ponte(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         if u.path == "/health":
             c = cfg()
-            return self.responder(200, {"ok": True, "ponte": "ligada", "versao": VERSAO, "hora": agora(),
+            return self.responder(200, {"ok": True, "ponte": "ligada", "versao": VERSAO, "hora": agora(), "modo": c.get("modo", "local"),
+                                        "nuvem": {"url_definida": bool(nuvem_cfg()[0]), "ultima_sync": ler_json(NUVEM_ESTADO, {}).get("ultima"), "erro": STATUS.get("nuvem_erro")},
                                         "webhook_configurado": bool(c["webhook_url"]), "chave_presente": bool(ler_segredo(KEY)),
                                         "telegram": {"token_presente": bool(ler_segredo(TOKEN)), "chat_id_definido": bool(c["chat_id"]),
                                                      "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"],
@@ -1179,6 +1301,7 @@ def main():
     threading.Thread(target=loop_telegram, daemon=True).start()
     threading.Thread(target=loop_stt, daemon=True).start()
     threading.Thread(target=loop_respostas, daemon=True).start()
+    threading.Thread(target=loop_nuvem, daemon=True).start()
     try:
         n = esvaziar_fila_memoria()
         if n:

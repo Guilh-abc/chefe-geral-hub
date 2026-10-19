@@ -16,6 +16,14 @@ export default async function abrir(el) {
     <label class="check"><input type="radio" name="motor" value="ollama" ${c.motor === "ollama" ? "checked" : ""}> Motor 2: Ollama no Mac <span class="tag ollama" style="margin:0">experimental</span></label>
     <p class="muted small">Você também escolhe o motor em cada pedido, na tela inicial.</p></div>
 
+  <form class="card" id="fn"><h3>Ponte na nuvem <span class="pill" id="nst">${c.grok.modo === "nuvem" ? "verificando..." : "desligada"}</span></h3>
+    <p class="muted small">Funciona 24 h, com o Mac desligado, no Mac e no celular. Pedidos, áudios, transcrições e respostas ficam na sua conta Cloudflare, e a ponte do Mac copia tudo para o Obsidian quando ligar. A URL e o token aparecem uma vez no fim do <code>./scripts/nuvem-instalar.sh</code>.</p>
+    <label class="check"><input type="checkbox" id="nuse" ${c.grok.modo === "nuvem" ? "checked" : ""}> Usar a ponte na nuvem neste aparelho</label>
+    <label class="campo">URL do Worker<input id="nu" type="url" value="${esc(c.grok.nuvem?.url || "")}" placeholder="https://chefe-geral-ponte.SEU-USUARIO.workers.dev"></label>
+    <label class="campo">Token do app (fica só neste aparelho)<input id="nt" type="password" autocomplete="off" ${seg(c.grok.nuvem?.token, "cole o token do app")}></label>
+    <p class="muted small">Sem a nuvem, o celular volta ao modo só Telegram e o Mac usa a ponte local.</p>
+    <div class="row-btn"><button class="primary">Salvar</button><button type="button" class="ghost" id="ntest">Testar</button></div></form>
+
   <form class="card" id="fg"><h3>Motor 1: Chefe Geral <span class="pill" id="pst">verificando...</span></h3>
     <p class="muted small">O webhook da rotina não aceita chamadas direto do navegador, então o app fala com a <b>Ponte do Mac</b>, que guarda a chave no Mac e repassa. A chave não fica no navegador.</p>
     <label class="campo">Endereço da ponte<input id="gp" value="${esc(c.grok.ponte)}"></label>
@@ -81,8 +89,15 @@ export default async function abrir(el) {
   }
   const salvo = () => aviso("Salvo neste aparelho");
   el.addEventListener("change", e => { if (e.target.name === "motor") { gravar({motor: e.target.value}); salvo(); } });
-  $("#fg", el).onsubmit = e => { e.preventDefault(); gravar({grok: {modo: $("#gdir", el).checked ? "direto" : "ponte", ponte: $("#gp", el).value.trim() || "http://127.0.0.1:8788", url: $("#gu", el).value.trim(), header: $("#gh", el).value.trim() || "Authorization", ...($("#gk", el).value ? {chave: $("#gk", el).value.trim()} : {}), ...($("#gpt", el).value ? {ponte_token: $("#gpt", el).value.trim()} : {})}}); salvo(); reabrir(el); };
-  import("../engines/grok-webhook.js").then(m => m.saude()).then(s => { const p = $("#pst", el); if (!p) return; p.className = "pill " + (s.ligada && s.chave_presente ? "ok" : "no"); p.textContent = c.grok.modo !== "ponte" ? "modo direto" : s.ligada ? (s.chave_presente ? "ponte ligada" : "ponte sem chave") : emCelular() ? "no celular: pelo Telegram" : "ponte desligada"; if (!s.ligada && emCelular()) p.className = "pill ok"; });
+  $("#fg", el).onsubmit = e => { e.preventDefault(); gravar({grok: {modo: $("#gdir", el).checked ? "direto" : ler().grok.modo === "nuvem" ? "nuvem" : "ponte", ponte: $("#gp", el).value.trim() || "http://127.0.0.1:8788", url: $("#gu", el).value.trim(), header: $("#gh", el).value.trim() || "Authorization", ...($("#gk", el).value ? {chave: $("#gk", el).value.trim()} : {}), ...($("#gpt", el).value ? {ponte_token: $("#gpt", el).value.trim()} : {})}}); salvo(); reabrir(el); };
+  $("#fn", el).onsubmit = e => { e.preventDefault(); const usa = $("#nuse", el).checked, url = $("#nu", el).value.trim();
+    if (usa && !/^https:\/\//.test(url)) return aviso("A URL do Worker começa com https://", true);
+    if (usa && !$("#nt", el).value && !ler().grok.nuvem?.token) return aviso("Cole o token do app", true);
+    gravar({grok: {modo: usa ? "nuvem" : (ler().grok.modo === "nuvem" ? "ponte" : ler().grok.modo), nuvem: {url, ...($("#nt", el).value ? {token: $("#nt", el).value.trim()} : {})}}}); salvo(); reabrir(el); };
+  $("#ntest", el).onclick = async () => { try { const m = await import("../engines/grok-webhook.js"); if (!m.nuvem()) throw new Error("Marque a opção, cole URL e token e salve antes");
+    const j = await m.nuvemApi("/respostas?limite=1"); if (j.erro) throw new Error(j.erro); aviso("Ponte na nuvem ok: token aceito"); } catch (err) { aviso(err.message, true); } };
+  if (c.grok.modo === "nuvem") import("../engines/grok-webhook.js").then(m => m.saude()).then(s => { const p = $("#nst", el); if (p) { p.className = "pill " + (s.ligada ? "ok" : "no"); p.textContent = s.ligada ? "ligada" : "fora do ar"; } });
+  import("../engines/grok-webhook.js").then(m => m.saude()).then(s => { const p = $("#pst", el); if (!p) return; p.className = "pill " + (s.ligada && s.chave_presente ? "ok" : "no"); p.textContent = c.grok.modo === "nuvem" ? (s.ligada ? "pela nuvem" : "nuvem fora do ar") : c.grok.modo !== "ponte" ? "modo direto" : s.ligada ? (s.chave_presente ? "ponte ligada" : "ponte sem chave") : emCelular() ? "no celular: pelo Telegram" : "ponte desligada"; if (!s.ligada && emCelular()) p.className = "pill ok"; });
   $("#fo", el).onsubmit = e => { e.preventDefault(); gravar({ollama: {url: $("#ou", el).value.trim(), modelo: $("#om", el).value.trim()}}); salvo(); };
   $("#ft", el).onsubmit = e => { e.preventDefault(); gravar({telegram: {chat_id: $("#tc", el).value.trim(), bot: $("#tb", el).value.trim().replace(/^@/, ""), ...($("#tk", el).value ? {token: $("#tk", el).value.trim()} : {})}}); salvo(); reabrir(el); };
   $("#fob", el).onsubmit = e => { e.preventDefault(); gravar({obsidian: {via: $("#obrest", el).checked ? "rest" : "ponte", url: $("#obu", el).value.trim(), cofre: $("#obv", el).value.trim(), captura: $("#obc", el).checked, ...($("#obk", el).value ? {chave: $("#obk", el).value.trim()} : {})}}); salvo(); reabrir(el); };
@@ -105,7 +120,7 @@ export default async function abrir(el) {
         const me = await (await import("../channels/telegram.js")).quemSou().catch(() => null); if (me) $("#tb", el).value = me.username; aviso("Encontrado: " + chats.map(x => x.chat_id + (x.nome ? " (" + x.nome + ")" : "")).join(", ") + ". Toque em Salvar.");
       }
       if (b.id === "dexp") { const d = await exportarTudo(); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], {type: "application/json"})); a.download = "chefe-geral-dados.json"; a.click(); }
-      if (b.id === "dlimpa" && confirm("Apagar webhook, token do Telegram e chave do Obsidian deste aparelho?")) { gravar({grok: {chave: "", ponte_token: ""}, telegram: {token: "", chat_id: ""}, obsidian: {chave: ""}}); reabrir(el); }
+      if (b.id === "dlimpa" && confirm("Apagar webhook, token do Telegram e chave do Obsidian deste aparelho?")) { gravar({grok: {chave: "", ponte_token: "", nuvem: {token: ""}}, telegram: {token: "", chat_id: ""}, obsidian: {chave: ""}}); reabrir(el); }
     } catch (err) { aviso(err.message, true); }
   });
 }

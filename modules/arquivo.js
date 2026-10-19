@@ -2,7 +2,7 @@
 import {$, $$, esc, aviso, quando} from "../core/ui.js";
 import {ler} from "../core/config.js";
 import {pagina, pegar} from "../core/db.js";
-import {emCelular, BOT} from "../core/aparelho.js";
+import {emCelular, BOT, nuvemAtiva} from "../core/aparelho.js";
 
 const ABAS = [["recentes", "Recentes"], ["documentos", "Documentos"], ["mensagens", "Mensagens"], ["transcricoes", "Transcrições"], ["obsidian", "Obsidian"], ["busca", "Busca"]];
 const base = () => (ler().grok.ponte || "http://127.0.0.1:8788").replace(/\/$/, "");
@@ -40,7 +40,9 @@ export default async function abrir(el) {
   const cont = $("#acont", el), view = $("#aview", el);
 
   try { info = await json("/arquivos/raizes"); ligada = true; } catch (e) { ligada = false; info = {erro: e.code === "PONTE_OFF" ? null : e.message}; }
-  $("#aest", el).innerHTML = ligada
+  $("#aest", el).innerHTML = !ligada && nuvemAtiva()
+    ? `<b>Pela ponte na nuvem.</b> Aqui aparecem pedidos, respostas, transcrições e reuniões guardados na sua conta Cloudflare, mesmo com o Mac desligado. Documentos e o cofre do Obsidian aparecem no Chrome do Mac.`
+    : ligada
     ? `Ponte do Mac ligada. Pastas liberadas (só leitura): ${info.raizes.map(r => `<b>${esc(r.nome)}</b>`).join(", ")}. Segredos e a pasta nrf9151-ntn nunca aparecem.`
     : emCelular() ? `<b>No celular, aqui aparece só o que está neste aparelho</b>: pedidos, notas de voz e reuniões feitos por aqui. Os documentos, transcrições e notas do Obsidian aparecem no Mac (abra este app no Chrome do Mac), e as respostas do Chefe Geral ficam no <a class="tg" href="https://t.me/${BOT()}" target="_blank" rel="noopener">@${BOT()}</a> e no Obsidian, em Chefe Geral/Respostas.`
     : `<b>Ponte do Mac fora de alcance.</b> ${info.erro ? esc(info.erro) + ". " : ""}No celular ou fora do Mac é normal: aqui aparece só o que está guardado neste aparelho (pedidos, notas de voz e reuniões). No Mac, abra no Chrome, permita o acesso à rede local e confira a ponte em Canais.`;
@@ -65,6 +67,20 @@ export default async function abrir(el) {
       <div class="small" style="white-space:pre-wrap">${esc(String(o.x || "").slice(0, 1500))}</div>${o.r ? `<details><summary class="small">Resposta</summary><div class="small" style="white-space:pre-wrap">${esc(typeof o.r === "string" ? o.r : JSON.stringify(o.r, null, 1)).slice(0, 4000)}</div></details>` : ""}</div></div>`).join("") : `<div class="vazio">Nada guardado neste aparelho.</div>`);
   }
 
+  // Ponte na nuvem: pedidos, respostas, transcrições e reuniões guardados no Worker (vistos no Mac e no celular).
+  async function nuvemSec(tipos, titulo = "Na nuvem") {
+    if (!nuvemAtiva()) return "";
+    const {nuvemApi} = await import("../engines/grok-webhook.js");
+    const NOME = {pedidos: "Pedido", respostas: "Resposta", transcricoes: "Transcrição", reunioes: "Reunião"};
+    try {
+      const res = (await Promise.all(tipos.map(t => nuvemApi("/" + t + "?limite=40").then(j => (j.itens || []).map(i => ({...i, rot: NOME[t]})))))).flat()
+        .sort((a, b) => b.criado_em.localeCompare(a.criado_em));
+      return `<h2 class="sec">${titulo}</h2>` + (res.length ? res.map(i => `<div class="item"><div class="item-t"><b>${esc(i.rot)}: ${esc(i.titulo || "")}</b> <span class="item-m">${quando(i.criado_em)}${i.meta?.canal ? " · " + esc(i.meta.canal) : ""}</span>
+        <details${i.tipo === "resposta" ? " open" : ""}><summary class="small">Ver texto</summary><div class="small" style="white-space:pre-wrap">${esc(String(i.texto || "").slice(0, 6000))}</div></details></div></div>`).join("")
+        : `<div class="vazio">Nada na nuvem ainda.</div>`);
+    } catch (e) { return `<h2 class="sec">${titulo}</h2><div class="vazio">${esc(e.message)}</div>`; }
+  }
+
   const pasta = info?.obsidian?.pasta || "Chefe Geral";
   async function prefixos(lst, n = 60) {
     const res = await Promise.all(lst.map(p => json("/arquivos/recentes", {n, raiz: "obsidian", prefixo: pasta + "/" + p}).then(j => j.itens).catch(() => [])));
@@ -83,6 +99,12 @@ export default async function abrir(el) {
     view.hidden = true;
     cont.innerHTML = `<p class="muted">Carregando...</p>`;
     try {
+      if (!ligada && nuvemAtiva()) {
+        cont.innerHTML = aba === "documentos" || aba === "obsidian" || aba === "busca"
+          ? `<div class="vazio">Documentos e o cofre do Obsidian ficam no Mac: esta aba aparece no Chrome do Mac com a ponte ligada. Aqui embaixo está o que a nuvem guarda.</div>` + await nuvemSec(["respostas", "pedidos", "transcricoes", "reunioes"])
+          : await nuvemSec(aba === "mensagens" ? ["pedidos", "respostas"] : aba === "transcricoes" ? ["transcricoes", "reunioes"] : ["respostas", "pedidos", "transcricoes", "reunioes"]) + await local(aba);
+        return;
+      }
       if (!ligada) {
         cont.innerHTML = aba === "documentos" || aba === "obsidian" || aba === "busca"
           ? `<div class="vazio">${emCelular() ? "Esta aba mostra os arquivos do Mac, então só aparece no Chrome do Mac. No celular, as respostas e documentos que o Chefe Geral manda chegam no @" + BOT() + "." : "Esta aba precisa da ponte do Mac. Abra o app no Chrome do Mac."}</div>` + await local(aba)
@@ -97,7 +119,7 @@ export default async function abrir(el) {
         cont.innerHTML = `<p class="small muted">PDF, Word, imagens e áudios nas pastas liberadas. Toque numa pasta abaixo para navegar.</p>
           <div class="acoes">${info.raizes.map(r => `<button data-nav="${esc(r.id)}|">${esc(r.nome)}</button>`).join("")}</div>` + lista(res);
       }
-      else if (aba === "mensagens") cont.innerHTML = `<p class="small muted">Pedidos e respostas gravados no Obsidian em ${esc(pasta)}/Pedidos e ${esc(pasta)}/Respostas.</p>` + lista(await prefixos(["Pedidos", "Respostas", "Mensagens"])) + await local("mensagens");
+      else if (aba === "mensagens") cont.innerHTML = `<p class="small muted">Pedidos e respostas gravados no Obsidian em ${esc(pasta)}/Pedidos e ${esc(pasta)}/Respostas.</p>` + lista(await prefixos(["Pedidos", "Respostas", "Mensagens"])) + await nuvemSec(["pedidos", "respostas"], "Na nuvem (ainda indo para o Obsidian)") + await local("mensagens");
       else if (aba === "transcricoes") cont.innerHTML = `<p class="small muted">Notas de voz, reuniões e transcrições feitas no Mac.</p>` + lista(await prefixos(["Notas de voz", "Reunioes", "Transcricoes"])) + await local("transcricoes");
       else if (aba === "obsidian") await mostrarPasta("obsidian", "");
       else if (aba === "busca") {
