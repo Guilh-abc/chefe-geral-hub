@@ -24,7 +24,6 @@ OPLIST="$HOME/Library/LaunchAgents/com.chefegeral.ollama-origins.plist"
 cp "$REPO/launchagent/com.chefegeral.ollama-origins.plist" "$OPLIST"
 launchctl bootout "gui/$(id -u)/com.chefegeral.ollama-origins" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$OPLIST" || true
+for i in 1 2 3 4 5 6; do sleep 1; curl -s -m 2 http://127.0.0.1:8788/health && { echo; break; }; done
 echo "OLLAMA_ORIGINS=$(launchctl getenv OLLAMA_ORIGINS)  (reabra o Ollama para valer)"
-sleep 1
-curl -s http://127.0.0.1:8788/health && echo
 echo "Ponte instalada. Próximo passo: ./scripts/set-webhook-key.sh"
