@@ -13,7 +13,7 @@ workers_dev = true
 
 [vars]
 ALLOWED_ORIGIN = "https://guilh-abc.github.io"
-WEBHOOK_URL = "https://api2.cursor.sh/automations/webhook/8fbc23ef-d920-5dc4-bbc5-ec16f15607d3"
+WEBHOOK_URL = ""   # o instalador põe o webhook_url do relay.json
 CHAT_ID = ""   # preenchido pelo instalador (seu chat_id, não é segredo)
 
 [ai]

@@ -20,6 +20,8 @@ for f in webhook.key telegram.token relay.json; do
 done
 CHAT_ID=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("chat_id",""))' "$DIR/relay.json")
 [ -n "$CHAT_ID" ] || { echo "chat_id vazio em relay.json"; exit 1; }
+WH_URL=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("webhook_url",""))' "$DIR/relay.json")
+[ -n "$WH_URL" ] || { echo "webhook_url vazio em relay.json"; exit 1; }
 TG_TOKEN=$(tr -d '\r\n' < "$DIR/telegram.token")
 
 echo "1/7 Login no Cloudflare (abre o navegador; crie a conta grátis se ainda não tiver)..."
@@ -37,7 +39,7 @@ if [ -z "$DBID" ]; then
   DBID=$(echo "$OUT" | grep -Eo '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 fi
 [ -n "$DBID" ] || { echo "Não consegui o id do banco D1. Rode: npx wrangler d1 list"; exit 1; }
-sed -e "s/00000000-0000-0000-0000-000000000000/$DBID/" -e "s/^CHAT_ID = \"\".*/CHAT_ID = \"$CHAT_ID\"/" wrangler.toml > "$LOCAL_TOML"
+sed -e "s/00000000-0000-0000-0000-000000000000/$DBID/" -e "s/^CHAT_ID = \"\".*/CHAT_ID = \"$CHAT_ID\"/" -e "s|^WEBHOOK_URL = \"\".*|WEBHOOK_URL = \"$WH_URL\"|" wrangler.toml > "$LOCAL_TOML"
 $W d1 execute chefe-geral --remote --yes --file schema.sql -c "$LOCAL_TOML" >/dev/null
 
 echo "3/7 Publicando o Worker..."
