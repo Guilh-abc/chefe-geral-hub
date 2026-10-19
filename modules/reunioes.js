@@ -8,6 +8,18 @@ import {criarGravador, temTranscricao, temGravacao} from "../core/voz.js";
 const ETAPAS = ["Gravar", "Transcrição", "Resumo", "Revisar e enviar"];
 export default async function abrir(el) {
   let r = null, grav = null, relogio = null, inicio = 0;
+  const emCurso = new Set();
+  // Estado da transcrição no Mac; "transcrevendo" de uma visita anterior foi interrompida.
+  const estadoT = x => {
+    if (x.transc_estado === "transcrevendo" && !emCurso.has(x.id)) return {st: "erro", msg: "A transcrição foi interrompida. Toque em Tentar de novo."};
+    return {st: x.transc_estado, msg: x.transc_erro || "Não consegui transcrever."};
+  };
+  const caixaT = x => {
+    const {st, msg} = estadoT(x);
+    if (st === "transcrevendo") return `<span style="color:var(--and)">Transcrevendo no Mac…</span>${x.duracao_s > 300 ? " <span class='muted'>Reunião longa: pode levar alguns minutos.</span>" : ""}`;
+    if (st === "erro") return `<span style="color:var(--err)">${esc(msg)}</span>`;
+    return "";
+  };
   const etapas = n => `<div class="etapas">${ETAPAS.map((e, i) => `<span class="${i === n ? "on" : ""}">${i + 1}. ${e}</span>`).join("")}</div>`;
 
   async function lista() {
@@ -17,7 +29,7 @@ export default async function abrir(el) {
       <b>Quero gravar pra reunião</b>
       <p class="muted small">${temGravacao() ? "Grava o áudio no aparelho." : "Este navegador não grava áudio."} ${temTranscricao() ? "Transcreve ao vivo em português." : "Sem transcrição ao vivo aqui: ao final, cole a transcrição ou mande o áudio ao Chefe Geral."}</p>
       <label class="ghost" style="display:inline-block">Já tenho áudio ou transcrição<input type="file" id="rf" accept="audio/*,.txt,.md,.vtt,.srt,text/plain" hidden></label>
-    </div><h2 class="sec">Reuniões</h2>` + (rs.length ? rs.map(x => `<div class="item" data-id="${x.id}"><div class="item-h"><span class="st ${x.status === "enviado" ? "enviado" : "andamento"}"></span><div class="item-t">${esc(x.titulo)}<div class="item-m">${quando(x.criado_em)} · ${x.status === "enviado" ? "Enviado no Telegram" : x.resumo ? "Resumo pronto para revisar" : "Sem resumo"}</div></div></div><div class="acoes"><button data-abrir="${x.id}">Abrir</button></div></div>`).join("") : `<div class="vazio">Nenhuma reunião ainda.</div>`);
+    </div><h2 class="sec">Reuniões</h2>` + (rs.length ? rs.map(x => `<div class="item" data-id="${x.id}"><div class="item-h"><span class="st ${x.status === "enviado" ? "enviado" : "andamento"}"></span><div class="item-t">${esc(x.titulo)}<div class="item-m">${quando(x.criado_em)} · ${x.status === "enviado" ? "Enviado no Telegram" : x.resumo ? "Resumo pronto para revisar" : "Sem resumo"}</div>${caixaT(x) ? `<div class="small">${caixaT(x)}</div>` : ""}</div></div><div class="acoes"><button data-abrir="${x.id}">Abrir</button></div></div>`).join("") : `<div class="vazio">Nenhuma reunião ainda.</div>`);
   }
   function tempo() { const s = Math.floor((Date.now() - inicio) / 1000); $("#rt", el).textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
 
@@ -31,19 +43,22 @@ export default async function abrir(el) {
   }
   async function parar() {
     clearInterval(relogio);
-    const {texto, audio} = await grav.parar(); grav = null;
+    $("#rx", el)?.insertAdjacentHTML("afterend", `<p class="muted small">Finalizando...</p>`);
+    const {texto, audio, silencio} = await grav.parar(); grav = null;
     const id = "r" + Date.now().toString(36);
     if (audio) await salvar("blobs", {id: id + "-audio", blob: audio, criado_em: agoraISO()});
-    r = await salvar("reunioes", {id, titulo: "Reunião " + quando(agoraISO()), transcricao: texto, audio: audio ? id + "-audio" : null, duracao_s: Math.round((Date.now() - inicio) / 1000), status: "rascunho"});
+    r = await salvar("reunioes", {id, titulo: "Reunião " + quando(agoraISO()), transcricao: texto, audio: audio ? id + "-audio" : null, duracao_s: Math.round((Date.now() - inicio) / 1000), status: "rascunho", silencio: !!silencio, transc_estado: texto ? "ok" : null});
     if (texto) memoria(r.titulo + " (transcrição)", texto, ["transcricao"]);
     revisar();
+    // Sem transcrição ao vivo: manda o áudio para o Mac na hora; o andamento aparece na própria reunião.
+    if (!texto && audio) transcrever(id);
   }
   async function revisar() {
     const regras = ler().regrasReuniao;
     const n = r.resumo ? 3 : r.transcricao ? 2 : 1;
     el.innerHTML = etapas(n) + `<div class="card"><label class="campo">Título<input id="rti" value="${esc(r.titulo)}"></label>
       <label class="campo">Transcrição ${r.transcricao ? `<span class="muted">(${r.transcricao.split(/\s+/).length} palavras)</span>` : ""}<textarea id="rtr" rows="6" placeholder="Sem transcrição. Cole aqui o texto da reunião.">${esc(r.transcricao || "")}</textarea></label>
-      ${r.audio ? `<div class="row-btn"><button class="ghost" id="rplay">Ouvir áudio</button><button class="ghost" id="rmac">Transcrever no Mac</button></div><p class="muted small" id="rmacst"></p><audio id="rau" controls hidden style="width:100%;margin-top:8px"></audio>` : ""}</div>
+      ${r.audio ? `<div class="row-btn"><button class="ghost" id="rplay">Ouvir áudio</button>${botaoMac(r)}</div><p class="small" id="rmacst">${caixaT(r)}</p><audio id="rau" controls hidden style="width:100%;margin-top:8px"></audio>` : ""}</div>
       <details class="card regras"><summary><b>Regras do resumo</b> <span class="muted small">(${regras.length}, toque para editar)</span></summary><ol id="rr">${regras.map((x, i) => `<li><input value="${esc(x)}" data-i="${i}"><button data-del="${i}" aria-label="Remover">×</button></li>`).join("")}</ol>
         <div class="row-btn"><button class="ghost" id="radd">Adicionar regra</button><button class="ghost" id="rsalvar">Salvar regras</button></div></details>
       <div class="card"><h3>Gerar resumo</h3>
@@ -70,8 +85,52 @@ export default async function abrir(el) {
     box.querySelector("#rshare")?.addEventListener("click", () => navigator.share({files: [arquivo], text: "/reuniao " + r.titulo}).catch(() => {}));
     aviso("Mac fora de alcance: na fila.");
   }
-  const salvarCampos = async () => { r = await atualizar("reunioes", r.id, x => { x.titulo = $("#rti", el).value; x.transcricao = $("#rtr", el).value; x.resumo = $("#rres", el).value; }); };
-  const memoria = (titulo, corpo, tags) => import("../memory/obsidian.js").then(m => m.capturar({modulo: "reunioes", titulo, corpo, tags, id: r.id})).catch(() => {});
+  const botaoMac = x => { const {st} = estadoT(x); return st === "transcrevendo" ? "" : `<button class="ghost" id="rmac">${st === "erro" ? "Tentar de novo" : "Transcrever no Mac"}</button>`; };
+  // Atualiza na tela só a parte da transcrição, se esta reunião estiver aberta (não perde o que você digitou).
+  function mostrarT(x) {
+    if (r?.id !== x.id || !$("#rmacst", el)) { if (!$("#rtr", el) && $(`[data-id="${x.id}"]`, el)) lista(); return; }
+    const st = $("#rmacst", el); st.innerHTML = caixaT(x);
+    const linha = $("#rplay", el)?.parentElement; if (linha) { $("#rmac", el)?.remove(); linha.insertAdjacentHTML("beforeend", botaoMac(x)); }
+  }
+  async function transcrever(id) {
+    if (emCurso.has(id)) return;
+    let x = await pegar("reunioes", id); if (!x?.audio) return;
+    const aberta = () => r?.id === id && $("#rtr", el);
+    if (aberta()) await salvarCampos();
+    const bl = await pegar("blobs", x.audio);
+    if (!bl) { x = await atualizar("reunioes", id, y => { y.transc_estado = "erro"; y.transc_erro = "O áudio desta reunião não está neste aparelho."; }); if (r?.id === id) r = x; return mostrarT(x); }
+    emCurso.add(id);
+    x = await atualizar("reunioes", id, y => { y.transc_estado = "transcrevendo"; y.transc_erro = null; });
+    if (r?.id === id) r = {...r, transc_estado: x.transc_estado, transc_erro: null};
+    mostrarT(x);
+    try {
+      const {transcreverNoMac} = await import("../engines/grok-webhook.js");
+      const j = await transcreverNoMac(bl.blob);
+      const texto = (j.texto || "").trim();
+      if (texto) {
+        const digitado = aberta() ? $("#rtr", el).value.trim() : "";
+        x = await atualizar("reunioes", id, y => { const base = digitado || (y.transcricao || "").trim(); y.transcricao = base ? base + "\n\n" + texto : texto; y.fonte_transcricao = "voicestudio"; y.transc_estado = "ok"; y.transc_erro = null; });
+        memoria(x.titulo + " (transcrição)", texto, ["transcricao"], id);
+      } else {
+        x = await atualizar("reunioes", id, y => { y.transc_estado = "erro"; y.transc_erro = y.silencio
+          ? "O microfone gravou silêncio. No Mac, veja Ajustes do Sistema > Privacidade e Segurança > Microfone e ligue o Google Chrome; confira também o microfone escolhido no cadeado da barra de endereço (com a tampa do notebook fechada o microfone interno fica mudo)."
+          : "O Mac não reconheceu fala neste áudio. Ouça a gravação para conferir e tente de novo."; });
+      }
+    } catch (err) {
+      const off = err.code === "PONTE_OFF";
+      x = await atualizar("reunioes", id, y => { y.transc_estado = "erro"; y.transc_erro = off
+        ? "Ponte do Mac desligada ou fora de alcance. No Mac, rode ./scripts/relay-status.sh; no Chrome, permita o acesso à rede local. No celular, mande o áudio ao seu bot com /reuniao na legenda."
+        : /VoiceStudio fechado/i.test(err.message) ? "VoiceStudio fechado. Abra o VoiceStudio no Mac e toque em Tentar de novo."
+        : "Não consegui transcrever: " + err.message; });
+    } finally { emCurso.delete(id); }
+    if (aberta()) {
+      // Reunião aberta: mostra o texto na hora, guardando o título e o resumo que você está editando.
+      const ti = $("#rti", el).value, rs = $("#rres", el).value;
+      r = x; revisar(); $("#rti", el).value = ti; $("#rres", el).value = rs;
+    } else if ($(`[data-id="${id}"]`, el)) lista();
+  }
+  const salvarCampos = async () => { r = await atualizar("reunioes", r.id, x => { x.titulo = $("#rti", el).value; x.transcricao = $("#rtr", el).value; if (x.transcricao.trim() && x.transc_estado === "erro") { x.transc_estado = "ok"; x.transc_erro = null; } x.resumo = $("#rres", el).value; }); };
+  const memoria = (titulo, corpo, tags, id = r.id) => import("../memory/obsidian.js").then(m => m.capturar({modulo: "reunioes", titulo, corpo, tags, id})).catch(() => {});
 
   el.addEventListener("click", async e => {
     const b = e.target.closest("button"); if (!b) return;
@@ -79,20 +138,7 @@ export default async function abrir(el) {
     if (b.id === "rp") return parar();
     if (b.dataset.abrir) { r = await pegar("reunioes", b.dataset.abrir); return revisar(); }
     if (b.id === "rvolta") { await salvarCampos(); return lista(); }
-    if (b.id === "rmac") {
-      const bl = await pegar("blobs", r.audio); if (!bl) return aviso("Áudio não está neste aparelho", true);
-      const st = $("#rmacst", el); b.disabled = true;
-      st.textContent = "Transcrevendo no Mac (VoiceStudio). Uma reunião longa pode levar alguns minutos...";
-      try {
-        const {transcreverNoMac} = await import("../engines/grok-webhook.js");
-        const j = await transcreverNoMac(bl.blob);
-        await salvarCampos();
-        r = await atualizar("reunioes", r.id, x => { x.transcricao = j.texto; x.fonte_transcricao = "voicestudio"; });
-        memoria(r.titulo + " (transcrição)", j.texto, ["transcricao"]);
-        aviso(`Transcrito no Mac em ${j.segundos} s`);
-        return revisar();
-      } catch (err) { b.disabled = false; st.textContent = ""; return aviso(err.code === "PONTE_OFF" ? "Mac fora de alcance. No celular: mande o áudio ao seu bot com /reuniao na legenda." : err.message, true); }
-    }
+    if (b.id === "rmac") return transcrever(r.id);
     if (b.id === "rplay") { const a = $("#rau", el), bl = await pegar("blobs", r.audio); a.src = URL.createObjectURL(bl.blob); a.hidden = false; a.play(); return; }
     if (b.id === "radd") { $("#rr", el).insertAdjacentHTML("beforeend", `<li><input value="" placeholder="Nova regra"><button data-del>×</button></li>`); return; }
     if (b.dataset.del !== undefined) { b.closest("li").remove(); return; }
@@ -141,11 +187,11 @@ export default async function abrir(el) {
     if (f.type.startsWith("audio/")) {
       await salvar("blobs", {id: id + "-audio", blob: f, criado_em: agoraISO()});
       r = await salvar("reunioes", {id, titulo: f.name.replace(/\.[^.]+$/, ""), transcricao: "", audio: id + "-audio", status: "rascunho"});
-      aviso("Áudio guardado. Sem transcrição automática de arquivo aqui: cole o texto ou peça ao Chefe Geral.");
     } else {
       r = await salvar("reunioes", {id, titulo: f.name.replace(/\.[^.]+$/, ""), transcricao: (await f.text()).slice(0, 400000), status: "rascunho"});
     }
     revisar();
+    if (f.type.startsWith("audio/")) transcrever(id);
   });
   await lista();
 }
