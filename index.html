@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chefe Geral</title>
+<meta name="description" content="Penso, falo, executo: pedidos ao Chefe Geral.">
+<meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chefe Geral">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/favicon-32.png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./core/app.css">
+</head>
+<body>
+<div class="app">
+  <nav class="tabs" aria-label="Navegação"></nav>
+  <main id="main">
+    <header class="top"><img src="./icons/icon-192.png" alt="" class="logo"><h1 id="titulo">Chefe Geral</h1><button class="voltar" data-ir="inicio" aria-label="Início">‹</button></header>
+    <section class="tela" id="tela-inicio">
+      <form id="form-pedir" class="pedir" autocomplete="off">
+        <label for="fala" class="lema">Penso, falo, executo.</label>
+        <div class="entrada">
+          <textarea id="fala" rows="3" placeholder="Fale ou escreva o que você quer. Ex.: marca 30 min com o Arthur amanhã sobre a Lightera"></textarea>
+          <button type="button" id="mic" class="mic" aria-label="Falar"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg></button>
+        </div>
+        <p id="parcial" class="parcial"></p>
+        <div class="linha">
+          <select id="motor" aria-label="Motor"><option value="grok">Motor 1: Chefe Geral</option><option value="ollama">Motor 2: Ollama (experimental)</option></select>
+          <button class="primary" type="submit">Pedir</button>
+        </div>
+        <p class="muted small">Vai para o Chefe Geral pela rotina de webhook. Ele executa nas suas ferramentas e pede o seu OK antes de mandar algo a alguém ou mexer na agenda.</p>
+      </form>
+      <div id="recentes" class="recentes"></div>
+      <h2 class="sec">Cômodos</h2>
+      <div id="cartoes" class="cartoes"></div>
+    </section>
+    <section class="tela" id="tela-mod" hidden></section>
+  </main>
+</div>
+<div id="aviso" class="aviso" role="status"></div>
+<script type="module" src="./core/shell.js"></script>
+</body>
+</html>

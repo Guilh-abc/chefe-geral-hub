@@ -1,0 +1,8 @@
+{
+  "_sobre": "Formato dos ajustes que o app guarda no localStorage (chave cg.ajustes.v1). Preencha pela tela Canais. Não coloque segredos neste repositório.",
+  "motor": "grok",
+  "grok": {"url": "https://<URL do webhook da rotina>", "header": "Authorization", "chave": "<cole no app, nunca aqui>"},
+  "ollama": {"url": "http://127.0.0.1:11434", "modelo": "llama3.2:3b"},
+  "telegram": {"token": "<cole no app>", "chat_id": "<descoberto no app>"},
+  "obsidian": {"url": "https://127.0.0.1:27124", "chave": "<cole no app>", "cofre": "<nome do cofre>", "pasta": "Chefe Geral", "captura": true}
+}

@@ -1,0 +1,716 @@
+{
+  "atualizado_em": "2026-10-19T07:30:00-03:00",
+  "grupos": [
+    {
+      "id": "prevendas",
+      "nome": "Pré-vendas",
+      "cor": "#e20074",
+      "icone": "briefcase"
+    },
+    {
+      "id": "carreira",
+      "nome": "Carreira",
+      "cor": "#7c5cff",
+      "icone": "rocket"
+    },
+    {
+      "id": "pessoal",
+      "nome": "Pessoal e família",
+      "cor": "#ff8a3d",
+      "icone": "heart"
+    },
+    {
+      "id": "financas",
+      "nome": "Finanças",
+      "cor": "#22c55e",
+      "icone": "wallet"
+    },
+    {
+      "id": "criacao",
+      "nome": "Criação e mídia",
+      "cor": "#06b6d4",
+      "icone": "film"
+    },
+    {
+      "id": "iot",
+      "nome": "IoT e laboratório NTN",
+      "cor": "#f59e0b",
+      "icone": "satellite"
+    },
+    {
+      "id": "sistemas",
+      "nome": "Sistemas",
+      "cor": "#3b82f6",
+      "icone": "code"
+    },
+    {
+      "id": "produtividade",
+      "nome": "Produtividade",
+      "cor": "#94a3b8",
+      "icone": "inbox"
+    }
+  ],
+  "vertentes": [
+    {
+      "id": "pricing",
+      "grupo": "prevendas",
+      "nome": "Precificação Telekom",
+      "descricao": "Cálculo de preço e margem para ofertas, com a skill telekom-presales-pricing e planilha Excel.",
+      "ferramentas": [
+        "Skill telekom-presales-pricing",
+        "Excel"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Precificar oferta",
+        "Revisar margem",
+        "Gerar planilha de preço"
+      ],
+      "itens": []
+    },
+    {
+      "id": "propostas",
+      "grupo": "prevendas",
+      "nome": "Propostas PTC",
+      "descricao": "Montagem de propostas técnico-comerciais com o colega Consultor PROPOSTAS.",
+      "ferramentas": [
+        "Consultor PROPOSTAS (colega)",
+        "WordCraft",
+        "Google Docs"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Nova proposta",
+        "Revisar proposta",
+        "Atualizar valores"
+      ],
+      "itens": [
+        {
+          "titulo": "Proposta Lightera: venceu 18/10 sem cotação das operadoras",
+          "status": "erro",
+          "data": "2026-10-18",
+          "nota": "Combinar com o Arthur: pedir mais prazo ou enviar com valores a confirmar (L-LIG-11)."
+        }
+      ]
+    },
+    {
+      "id": "hub-notion",
+      "grupo": "prevendas",
+      "nome": "Hub de pré-vendas no Notion",
+      "descricao": "Sincronização diária do hub: status de contas, lacunas e pendências.",
+      "ferramentas": [
+        "Notion"
+      ],
+      "modo": "auto",
+      "agenda": "Dias úteis às 19:47",
+      "atalhos": [
+        "Sincronizar hub agora",
+        "Registrar lacuna",
+        "Resumo das pendências"
+      ],
+      "itens": [
+        {
+          "titulo": "Sincronização do hub (lacuna L-LIG-11 registrada)",
+          "status": "concluido",
+          "data": "2026-10-18"
+        },
+        {
+          "titulo": "Próxima sincronização",
+          "status": "fila",
+          "data": "2026-10-19",
+          "nota": "Hoje às 19:47"
+        }
+      ]
+    },
+    {
+      "id": "cockpit",
+      "grupo": "prevendas",
+      "nome": "Cockpit e carteira",
+      "descricao": "Painel da carteira de clientes publicado no GitHub Pages.",
+      "ferramentas": [
+        "GitHub Pages"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Atualizar carteira",
+        "Publicar cockpit"
+      ],
+      "itens": []
+    },
+    {
+      "id": "followups",
+      "grupo": "prevendas",
+      "nome": "Follow-ups Lightera e Electrolux",
+      "descricao": "Acompanhamento das contas Lightera e Electrolux, cotações e checkpoints.",
+      "ferramentas": [
+        "Gmail",
+        "Notion"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Rascunhar follow-up",
+        "Status Lightera",
+        "Status Electrolux"
+      ],
+      "itens": [
+        {
+          "titulo": "Lightera: MRC/OTC e contatos das operadoras",
+          "status": "andamento",
+          "data": "2026-10-18",
+          "nota": "Aguardando cotações"
+        },
+        {
+          "titulo": "Lightera: gerência do roteador dos IPs",
+          "status": "andamento",
+          "data": "2026-10-18",
+          "nota": "Ponto em aberto"
+        },
+        {
+          "titulo": "Mensagem para o Arthur",
+          "status": "fila",
+          "data": "2026-10-18",
+          "nota": "Rascunho aguardando seu envio"
+        },
+        {
+          "titulo": "Electrolux: checkpoint de 15/10 sem registro",
+          "status": "erro",
+          "data": "2026-10-15"
+        }
+      ]
+    },
+    {
+      "id": "secretario",
+      "grupo": "carreira",
+      "nome": "Secretário pessoal",
+      "descricao": "Base privada no Notion para metas, tarefas e anotações de carreira.",
+      "ferramentas": [
+        "Notion (base privada)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Anotar tarefa",
+        "Ver metas",
+        "Organizar semana"
+      ],
+      "itens": []
+    },
+    {
+      "id": "revisao-semanal",
+      "grupo": "carreira",
+      "nome": "Revisão semanal",
+      "descricao": "Resumo da semana e prioridades da próxima, gerado automaticamente.",
+      "ferramentas": [
+        "Notion",
+        "Google Calendar",
+        "Gmail"
+      ],
+      "modo": "auto",
+      "agenda": "Segundas às 08:24",
+      "atalhos": [
+        "Antecipar revisão",
+        "Prioridades da semana"
+      ],
+      "itens": [
+        {
+          "titulo": "Revisão desta semana",
+          "status": "fila",
+          "data": "2026-10-19",
+          "nota": "Hoje às 08:24"
+        }
+      ]
+    },
+    {
+      "id": "linkedin",
+      "grupo": "carreira",
+      "nome": "LinkedIn",
+      "descricao": "Textos de posts e perfil. Sem conector: você publica.",
+      "ferramentas": [
+        "LinkedIn (sem conector)"
+      ],
+      "modo": "manual",
+      "atalhos": [
+        "Escrever post",
+        "Revisar perfil"
+      ],
+      "itens": []
+    },
+    {
+      "id": "auxilio-creche",
+      "grupo": "pessoal",
+      "nome": "Reembolso auxílio-creche",
+      "descricao": "Lembrete mensal e rascunho do e-mail de reembolso. O envio é seu.",
+      "ferramentas": [
+        "Gmail (rascunho)",
+        "Google Calendar"
+      ],
+      "modo": "semi",
+      "agenda": "Dia 5 às 09:37",
+      "atalhos": [
+        "Preparar reembolso",
+        "Ver comprovantes"
+      ],
+      "itens": [
+        {
+          "titulo": "Reembolso de novembro",
+          "status": "fila",
+          "data": "2026-11-05",
+          "nota": "05/11 às 09:37"
+        }
+      ]
+    },
+    {
+      "id": "historias",
+      "grupo": "pessoal",
+      "nome": "Histórias para a filha",
+      "descricao": "Histórias de dormir escritas pelo Chefe Geral e narradas com a sua voz clonada.",
+      "ferramentas": [
+        "VoiceStudio (voz clonada)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Nova história",
+        "Narrar história"
+      ],
+      "itens": [
+        {
+          "titulo": "A Maria Alice e a Estrela que Escutava",
+          "status": "concluido",
+          "data": "2026-10-18",
+          "nota": "Texto pronto para ditar no VoiceStudio"
+        }
+      ]
+    },
+    {
+      "id": "financeiro",
+      "grupo": "financas",
+      "nome": "Gestor Financeiro",
+      "descricao": "Controle de gastos, contas e planejamento com o colega Gestor Financeiro.",
+      "ferramentas": [
+        "Gestor Financeiro (colega)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Resumo do mês",
+        "Lançar despesa",
+        "Planejar orçamento"
+      ],
+      "itens": []
+    },
+    {
+      "id": "video",
+      "grupo": "criacao",
+      "nome": "Vídeo",
+      "descricao": "Edição, montagem e exportação de vídeos no Mac.",
+      "ferramentas": [
+        "FilmCraft"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Editar vídeo",
+        "Exportar versões",
+        "Legendar"
+      ],
+      "itens": [
+        {
+          "titulo": "Totem Telekom NTN narrado (16x9 e 9x16)",
+          "status": "concluido",
+          "data": "2026-10-18"
+        },
+        {
+          "titulo": "Comercial 15 s com a sua voz",
+          "status": "concluido",
+          "data": "2026-10-18"
+        },
+        {
+          "titulo": "Vertical no Google Drive: tipo de arquivo errado no app",
+          "status": "erro",
+          "data": "2026-10-18",
+          "nota": "Abrir pelo navegador do celular"
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "grupo": "criacao",
+      "nome": "Motion design",
+      "descricao": "Animações de slides e títulos.",
+      "ferramentas": [
+        "EffectCraft"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Animar slides",
+        "Criar vinheta"
+      ],
+      "itens": [
+        {
+          "titulo": "Animações dos 10 slides do totem",
+          "status": "concluido",
+          "data": "2026-10-18"
+        }
+      ]
+    },
+    {
+      "id": "voz",
+      "grupo": "criacao",
+      "nome": "Voz clonada",
+      "descricao": "Locução com a sua voz, modelo Qwen3-TTS Base (licença Apache-2.0, uso comercial).",
+      "ferramentas": [
+        "VoiceStudio",
+        "Qwen3-TTS Base"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Narrar texto",
+        "Regravar referência"
+      ],
+      "itens": [
+        {
+          "titulo": "Clonagem da voz (perfil gui)",
+          "status": "concluido",
+          "data": "2026-10-18"
+        },
+        {
+          "titulo": "Gravação nova com tom de apresentação",
+          "status": "fila",
+          "data": "2026-10-18",
+          "nota": "Opcional, para soar mais de palco"
+        }
+      ]
+    },
+    {
+      "id": "imagens",
+      "grupo": "criacao",
+      "nome": "Imagens",
+      "descricao": "Edição e criação de imagens.",
+      "ferramentas": [
+        "PhotoCraft"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Editar imagem",
+        "Criar arte"
+      ],
+      "itens": []
+    },
+    {
+      "id": "decks",
+      "grupo": "criacao",
+      "nome": "Apresentações",
+      "descricao": "Decks de clientes e eventos.",
+      "ferramentas": [
+        "DeckCraft",
+        "Google Slides"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Novo deck",
+        "Revisar slides"
+      ],
+      "itens": [
+        {
+          "titulo": "Slide 5 do totem: corrigir 4 min 39 s no arquivo",
+          "status": "fila",
+          "data": "2026-10-18",
+          "nota": "Aguardando sua decisão"
+        }
+      ]
+    },
+    {
+      "id": "planilhas",
+      "grupo": "criacao",
+      "nome": "Planilhas",
+      "descricao": "Planilhas e modelos de cálculo.",
+      "ferramentas": [
+        "GridCraft",
+        "Excel"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Nova planilha",
+        "Analisar dados"
+      ],
+      "itens": []
+    },
+    {
+      "id": "documentos",
+      "grupo": "criacao",
+      "nome": "Documentos",
+      "descricao": "Textos, relatórios e contratos.",
+      "ferramentas": [
+        "WordCraft",
+        "Google Docs"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Novo documento",
+        "Revisar texto"
+      ],
+      "itens": []
+    },
+    {
+      "id": "canva",
+      "grupo": "criacao",
+      "nome": "Canva",
+      "descricao": "Artes e posts pelo conector do Canva.",
+      "ferramentas": [
+        "Canva (conector)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Criar arte no Canva",
+        "Exportar design"
+      ],
+      "itens": []
+    },
+    {
+      "id": "tiktok",
+      "grupo": "criacao",
+      "nome": "TikTok",
+      "descricao": "Roteiro e vídeo prontos. Sem conector: a postagem é sua.",
+      "ferramentas": [
+        "TikTok (sem conector)",
+        "FilmCraft"
+      ],
+      "modo": "manual",
+      "atalhos": [
+        "Roteiro de vídeo",
+        "Vídeo no estilo estúdio IA"
+      ],
+      "itens": []
+    },
+    {
+      "id": "placas",
+      "grupo": "iot",
+      "nome": "Placas nRF9151",
+      "descricao": "Leitura de logs e testes das placas pelo seu Mac.",
+      "ferramentas": [
+        "Mac (serial/logs)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Ler logs das placas",
+        "Teste Cat-M",
+        "Teste satélite"
+      ],
+      "itens": []
+    },
+    {
+      "id": "painel-ntn",
+      "grupo": "iot",
+      "nome": "Painel NTN",
+      "descricao": "Painel dos dados das placas, publicado no Netlify.",
+      "ferramentas": [
+        "Netlify"
+      ],
+      "modo": "auto",
+      "atalhos": [
+        "Status do painel",
+        "Publicar painel"
+      ],
+      "itens": [
+        {
+          "titulo": "Sem dados novos enquanto o relay estiver fora",
+          "status": "erro",
+          "data": "2026-10-16"
+        }
+      ]
+    },
+    {
+      "id": "relay",
+      "grupo": "iot",
+      "nome": "Relay UDP",
+      "descricao": "Servidor que recebe os dados das placas e repassa ao painel.",
+      "ferramentas": [
+        "Fly.io"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Recriar máquina na Fly",
+        "Status do relay"
+      ],
+      "itens": [
+        {
+          "titulo": "Relay fora do ar: falha de hardware na Fly",
+          "status": "erro",
+          "data": "2026-10-16",
+          "nota": "Desde 16/10 às 19:04. Aguardando seu OK para recriar a máquina."
+        }
+      ]
+    },
+    {
+      "id": "sims",
+      "grupo": "iot",
+      "nome": "SIMs Telekom",
+      "descricao": "SIMs para o laboratório, com o András.",
+      "ferramentas": [
+        "Gmail"
+      ],
+      "modo": "manual",
+      "atalhos": [
+        "Cobrar András",
+        "Status dos SIMs"
+      ],
+      "itens": [
+        {
+          "titulo": "SIMs na Vivo: aguardando resposta do András",
+          "status": "andamento",
+          "data": "2026-10-18"
+        }
+      ]
+    },
+    {
+      "id": "dev",
+      "grupo": "sistemas",
+      "nome": "Desenvolvedor de Sistemas",
+      "descricao": "Colega para desenvolvimento de software e automações.",
+      "ferramentas": [
+        "Desenvolvedor de Sistemas (colega)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Novo sistema",
+        "Corrigir bug"
+      ],
+      "itens": [
+        {
+          "titulo": "Console do Chefe Geral",
+          "status": "concluido",
+          "data": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": "sistema-prevenda",
+      "grupo": "sistemas",
+      "nome": "Sistema pré-venda",
+      "descricao": "Colega dedicado ao sistema de pré-vendas.",
+      "ferramentas": [
+        "Sistema pre venda (colega)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Melhoria no sistema",
+        "Status do sistema"
+      ],
+      "itens": []
+    },
+    {
+      "id": "hw-m2m",
+      "grupo": "sistemas",
+      "nome": "Solução HW m2m",
+      "descricao": "Colega para hardware e soluções M2M/IoT.",
+      "ferramentas": [
+        "Solução HW m2m (colega)"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Escolher hardware",
+        "Arquitetura M2M"
+      ],
+      "itens": []
+    },
+    {
+      "id": "gmail",
+      "grupo": "produtividade",
+      "nome": "Gmail",
+      "descricao": "Busca, resumo e rascunhos. Nada é enviado sem o seu OK.",
+      "ferramentas": [
+        "Gmail"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Resumo da caixa",
+        "Rascunhar resposta"
+      ],
+      "itens": []
+    },
+    {
+      "id": "agenda",
+      "grupo": "produtividade",
+      "nome": "Google Calendar",
+      "descricao": "Agenda, lembretes e horários livres.",
+      "ferramentas": [
+        "Google Calendar"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Agenda de hoje",
+        "Marcar reunião"
+      ],
+      "itens": []
+    },
+    {
+      "id": "drive",
+      "grupo": "produtividade",
+      "nome": "Google Drive",
+      "descricao": "Arquivos, uploads e buscas.",
+      "ferramentas": [
+        "Google Drive"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Subir arquivo",
+        "Achar arquivo"
+      ],
+      "itens": [
+        {
+          "titulo": "Apagar cópia duplicada do vídeo vertical",
+          "status": "fila",
+          "data": "2026-10-18",
+          "nota": "Você apaga quando quiser"
+        }
+      ]
+    },
+    {
+      "id": "notion",
+      "grupo": "produtividade",
+      "nome": "Notion",
+      "descricao": "Páginas, bases e anotações.",
+      "ferramentas": [
+        "Notion"
+      ],
+      "modo": "semi",
+      "atalhos": [
+        "Criar página",
+        "Buscar no Notion"
+      ],
+      "itens": []
+    },
+    {
+      "id": "m365",
+      "grupo": "produtividade",
+      "nome": "Microsoft 365 e OneDrive",
+      "descricao": "Conector do OneDrive instalado, mas não conectado. Precisa do seu login.",
+      "ferramentas": [
+        "OneDrive (não conectado)",
+        "Microsoft 365"
+      ],
+      "modo": "manual",
+      "atalhos": [
+        "Conectar OneDrive"
+      ],
+      "itens": [
+        {
+          "titulo": "OneDrive aguardando login",
+          "status": "fila",
+          "data": "2026-10-18"
+        }
+      ]
+    },
+    {
+      "id": "telegram",
+      "grupo": "produtividade",
+      "nome": "Telegram",
+      "descricao": "Único canal de mensagens previsto (Telegram Bot API, gratuito). Ainda não configurado. Nenhuma mensagem sai sem a sua confirmação.",
+      "ferramentas": [
+        "Telegram Bot API (não configurado)"
+      ],
+      "modo": "manual",
+      "atalhos": [
+        "Configurar bot do Telegram"
+      ],
+      "itens": []
+    }
+  ]
+}
