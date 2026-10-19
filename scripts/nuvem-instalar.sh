@@ -69,6 +69,7 @@ python3 - "$DIR/relay.json" <<'PY'
 import json, sys
 p = sys.argv[1]; c = json.load(open(p)); c["modo"] = "nuvem"; json.dump(c, open(p, "w"), ensure_ascii=False, indent=2)
 PY
+mkdir -p "$DIR/relay" && cp "$REPO/relay/relay.py" "$DIR/relay/relay.py"   # ponte 1.4 (sabe o modo nuvem)
 launchctl kickstart -k "gui/$(id -u)/com.chefegeral.relay" 2>/dev/null || echo "   (reinicie a ponte: ./scripts/install-relay.sh)"
 sleep 2
 
