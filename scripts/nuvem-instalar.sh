@@ -11,6 +11,10 @@ REPO="$PWD"; CLOUD="$REPO/cloud"
 DIR="$HOME/Library/Application Support/ChefeGeral"
 LOCAL_TOML="$CLOUD/wrangler.local.toml"   # gerado aqui, fica fora do git
 W="npx -y wrangler@4"
+# Mostra o erro real, sem tokens, e para.
+limpar(){ printf '%s' "$1" | sed -E 's/bot[0-9]+:[A-Za-z0-9_-]+/bot<token>/g; s/[0-9a-f]{40,}/<token>/g; s/(Bearer|token[=:]) *[^ "]+/\1 <token>/gI'; }
+falha(){ echo; echo "Erro ao $1:"; limpar "$2" | tail -n 25; echo; echo "Nada foi mudado na ponte do Mac. Corrija e rode o script de novo."; exit 1; }
+trap 'echo "Erro inesperado na linha $LINENO (comando: $(limpar "$BASH_COMMAND"))."' ERR
 
 if ! command -v npx >/dev/null 2>&1; then
   echo "Falta o Node.js (npx). Instale com:  brew install node   (ou baixe em https://nodejs.org) e rode de novo."; exit 1
@@ -26,31 +30,41 @@ TG_TOKEN=$(tr -d '\r\n' < "$DIR/telegram.token")
 
 echo "1/7 Login no Cloudflare (abre o navegador; crie a conta grátis se ainda não tiver)..."
 cd "$CLOUD"
-$W whoami >/dev/null 2>&1 || $W login
+logado(){ local o; o=$($W whoami 2>&1) || return 1; ! echo "$o" | grep -qiE "not authenticated|not logged in|nao autenticado"; }
+if ! logado; then
+  echo "   Abrindo o login. Se o navegador não abrir, copie o link que aparecer abaixo."
+  $W login </dev/tty || true
+fi
+if ! logado; then
+  echo "Você não está logado no Cloudflare. Rode no Terminal:  npx -y wrangler@4 login"
+  echo "Autorize no navegador e depois rode este script de novo."; exit 1
+fi
+echo "   Logado no Cloudflare."
 
 echo "2/7 Banco D1 'chefe-geral'..."
-DBID=$($W d1 list --json 2>/dev/null | python3 -c 'import json,sys
+LISTA=$($W d1 list --json 2>&1) || falha "listar bancos D1" "$LISTA"
+DBID=$(printf '%s' "$LISTA" | python3 -c 'import json,sys
 try:
   l=json.load(sys.stdin)
 except Exception: l=[]
 print(next((d.get("uuid") or d.get("database_id") or "" for d in l if d.get("name")=="chefe-geral"),""))')
 if [ -z "$DBID" ]; then
-  OUT=$($W d1 create chefe-geral 2>&1); echo "$OUT" | grep -v -i token || true
+  OUT=$($W d1 create chefe-geral 2>&1) || falha "criar o banco D1" "$OUT"
   DBID=$(echo "$OUT" | grep -Eo '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
 fi
 [ -n "$DBID" ] || { echo "Não consegui o id do banco D1. Rode: npx wrangler d1 list"; exit 1; }
 sed -e "s/00000000-0000-0000-0000-000000000000/$DBID/" -e "s/^CHAT_ID = \"\".*/CHAT_ID = \"$CHAT_ID\"/" -e "s|^WEBHOOK_URL = \"\".*|WEBHOOK_URL = \"$WH_URL\"|" wrangler.toml > "$LOCAL_TOML"
-$W d1 execute chefe-geral --remote --yes --file schema.sql -c "$LOCAL_TOML" >/dev/null
+OUT=$($W d1 execute chefe-geral --remote --yes --file schema.sql -c "$LOCAL_TOML" 2>&1) || falha "criar as tabelas no D1" "$OUT"
 
 echo "3/7 Publicando o Worker..."
-OUT=$($W deploy -c "$LOCAL_TOML" 2>&1) || { echo "$OUT"; exit 1; }
+OUT=$($W deploy -c "$LOCAL_TOML" 2>&1) || falha "publicar o Worker" "$OUT"
 URL=$(echo "$OUT" | grep -Eo 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -1)
 [ -n "$URL" ] || { echo "$OUT"; echo "Não achei a URL do Worker na saída acima."; exit 1; }
 echo "   $URL"
 
 echo "4/7 Segredos (não aparecem na tela)..."
 APP_TOKEN=$(openssl rand -hex 24); RESP_TOKEN=$(openssl rand -hex 24); TG_SECRET=$(openssl rand -hex 24)
-put(){ printf '%s' "$2" | $W secret put "$1" -c "$LOCAL_TOML" >/dev/null; echo "   $1 ok"; }
+put(){ local o; o=$(printf '%s' "$2" | $W secret put "$1" -c "$LOCAL_TOML" 2>&1) || falha "gravar o segredo $1" "$o"; echo "   $1 ok"; }
 put WEBHOOK_KEY "$(tr -d '\r\n' < "$DIR/webhook.key")"
 put TELEGRAM_TOKEN "$TG_TOKEN"
 put TELEGRAM_SECRET "$TG_SECRET"
@@ -76,7 +90,7 @@ sleep 2
 echo "6/7 Webhook do Telegram -> Worker..."
 R=$(curl -sS "https://api.telegram.org/bot$TG_TOKEN/setWebhook" --data-urlencode "url=$URL/telegram" \
   --data-urlencode "secret_token=$TG_SECRET" --data-urlencode 'allowed_updates=["message"]' --data-urlencode "max_connections=5")
-echo "$R" | grep -q '"ok":true' && echo "   webhook ligado" || { echo "   setWebhook falhou: $R"; echo "   Para voltar: ./scripts/nuvem-desfazer.sh"; exit 1; }
+echo "$R" | grep -q '"ok":true' && echo "   webhook ligado" || { echo "   setWebhook falhou: $(limpar "$R")"; echo "   Para voltar: ./scripts/nuvem-desfazer.sh"; exit 1; }
 
 echo "7/7 Pronto. Guarde estes dois valores AGORA (não aparecem de novo; rodar este script de novo gera outros):"
 echo
