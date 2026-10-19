@@ -218,7 +218,7 @@ def stt_url():
 def vs_ligado():
     u = urllib.parse.urlparse(stt_url())
     try:
-        urllib.request.urlopen(f"{u.scheme}://{u.netloc}/", timeout=2).close()
+        urllib.request.urlopen(f"{u.scheme}://{u.netloc}/health", timeout=2).close()
         return True
     except urllib.error.HTTPError:
         return True  # respondeu, mesmo que 404: está aberto
