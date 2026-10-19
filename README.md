@@ -74,7 +74,7 @@ Contexto: antes de enviar um pedido, o app busca notas relacionadas (`/search/si
 ### 4. Motor 2: Ollama no Mac (experimental)
 IA aberta e gratuita. Responde aqui no app; não executa nas ferramentas.
 ```
-ollama pull llama3.2:3b
+ollama pull llama3.2   (já instalado no seu Mac)
 launchctl setenv OLLAMA_ORIGINS "https://guilh-abc.github.io"
 # feche e abra o app do Ollama
 ```

@@ -5,7 +5,7 @@ Objetivo: o Mac vira um motor local que se liga à casa, sem custo e sem mandar 
 | Peça | Ferramenta aberta | Papel |
 |---|---|---|
 | Transcrição | whisper.cpp (`whisper-cli`, modelo `ggml-small` ou `large-v3-turbo`, pt) | Transcrever áudios enviados e notas de voz do Telegram, sem a Web Speech API |
-| IA local | Ollama (`llama3.2:3b` para rápido, `qwen2.5:7b` ou `llama3.1:8b` para resumo) | Motor 2: triagem, resumo de reuniões, rascunhos |
+| IA local | Ollama (`llama3.2` para rápido, `qwen2.5:7b` ou `llama3.1:8b` para resumo) | Motor 2: triagem, resumo de reuniões, rascunhos |
 | Embeddings | Ollama `nomic-embed-text` ou `bge-m3` | Busca semântica no cofre do Obsidian |
 | Índice | SQLite com `sqlite-vec` (ou arquivo JSON simples no começo) | Vetores das notas da pasta `Chefe Geral` e do cofre principal |
 | Ponte | Pequeno servidor Python stdlib em `127.0.0.1` | Recebe áudio do app, roda whisper.cpp, devolve texto; indexa o cofre |

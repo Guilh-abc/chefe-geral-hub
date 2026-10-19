@@ -23,7 +23,7 @@ export default async function abrir(el) {
   <form class="card" id="fo"><h3>Motor 2: Ollama <span class="tag ollama" style="margin:0">experimental</span></h3>
     <p class="muted small">IA aberta e gratuita rodando no Mac. Responde aqui no app; não executa nas ferramentas. Para este site falar com o Ollama, no Terminal do Mac: <code>launchctl setenv OLLAMA_ORIGINS "${esc(location.origin)}"</code> e reabra o Ollama. Funciona no Chrome do próprio Mac.</p>
     <label class="campo">Endereço<input id="ou" value="${esc(c.ollama.url)}"></label>
-    <label class="campo">Modelo<input id="om" value="${esc(c.ollama.modelo)}" placeholder="llama3.2:3b"></label>
+    <label class="campo">Modelo<input id="om" value="${esc(c.ollama.modelo)}" placeholder="llama3.2"></label>
     <div class="row-btn"><button class="primary">Salvar</button><button type="button" class="ghost" data-t="ollama">Testar motor</button></div></form>
 
   <form class="card" id="ft"><h3>Telegram ${st(c.telegram.token && c.telegram.chat_id, "configurado", "falta configurar")}</h3>

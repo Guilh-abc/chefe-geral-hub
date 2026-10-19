@@ -3,7 +3,7 @@ const K = "cg.ajustes.v1";
 export const PADRAO = {
   motor: "grok",                      // "grok" (Motor 1) ou "ollama" (Motor 2, experimental)
   grok: {url: "", header: "Authorization", chave: ""},
-  ollama: {url: "http://127.0.0.1:11434", modelo: "llama3.2:3b"},
+  ollama: {url: "http://127.0.0.1:11434", modelo: "llama3.2"},
   telegram: {token: "", chat_id: ""},
   obsidian: {url: "https://127.0.0.1:27124", chave: "", cofre: "", pasta: "Chefe Geral", captura: true},
   regrasReuniao: [
