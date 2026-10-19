@@ -5,7 +5,7 @@ export const PADRAO = {
   grok: {modo: "ponte", ponte: "http://127.0.0.1:8788", ponte_token: "", url: "", header: "Authorization", chave: ""},
   ollama: {url: "http://127.0.0.1:11434", modelo: "llama3.2"},
   telegram: {token: "", chat_id: "", bot: ""},
-  obsidian: {url: "https://127.0.0.1:27124", chave: "", cofre: "", pasta: "Chefe Geral", captura: true},
+  obsidian: {via: "ponte", url: "https://127.0.0.1:27124", chave: "", cofre: "", pasta: "Chefe Geral", captura: true},
   regrasReuniao: [
     "Comece com uma frase de amigo, direto e sincero, dizendo como foi a reunião",
     "Pontos principais em até 5 tópicos",

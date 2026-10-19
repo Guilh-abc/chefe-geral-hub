@@ -34,7 +34,7 @@ export const MODULOS = [
   {id: "memoria", nome: "Segundo cérebro", desc: "Tudo vira nota no Obsidian, na pasta Chefe Geral, e volta como contexto.", canais: ["Obsidian"], pronto: true,
     resumo: async () => ({fila: await contar("memoria", n => n.status === "fila"), erro: 0})},
   {id: "canais", nome: "Canais e motores", desc: "Webhook do Chefe Geral, Telegram, Obsidian e Motor 2 (Ollama).", canais: ["Ajustes"], pronto: true,
-    resumo: async () => { const c = ler(); const falta = [!c.grok.url && "webhook", !c.telegram.chat_id && "Telegram", !c.obsidian.chave && "Obsidian"].filter(Boolean); return {texto: falta.length ? "Falta: " + falta.join(", ") : "Tudo configurado", alerta: falta.length > 0}; }},
+    resumo: async () => { const c = ler(); const falta = [!c.grok.url && "webhook", !c.telegram.chat_id && "Telegram", c.obsidian.via === "rest" && !c.obsidian.chave && "Obsidian"].filter(Boolean); return {texto: falta.length ? "Falta: " + falta.join(", ") : "Tudo configurado", alerta: falta.length > 0}; }},
 ];
 const NAV = ["inicio", "pedidos", "reunioes", "tarefas", "canais"];
 
@@ -99,6 +99,7 @@ async function verPonte() {
     const {reenviarFila} = await import("./pipeline.js");
     const n = await reenviarFila();
     if (n) { aviso(n + " pedido(s) da fila entregue(s) ao Chefe Geral"); recentes(); }
+    import("../memory/obsidian.js").then(m => m.sincronizar()).catch(() => {});
   }
   ponteAntes = s.ligada;
 }

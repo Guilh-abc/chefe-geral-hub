@@ -46,14 +46,17 @@ export default async function abrir(el) {
     <p class="muted small">O app só manda mensagem para este chat, e só quando você toca em Enviar.</p>
     <p class="muted small"><b>Ponte do Mac + Telegram:</b> para o Mac receber o que você manda ao bot (texto e voz), rode no Mac <code>./scripts/set-telegram.sh</code>. Depois disso, use "Descobrir chat_id" só antes de ligar a ponte (os dois disputam as mensagens).</p></form>
 
-  <form class="card" id="fob"><h3>Segundo cérebro: Obsidian ${st(c.obsidian.chave, "conectado", "na fila do app")}</h3>
-    <p class="muted small">O app grava notas só dentro da pasta <b>${esc(c.obsidian.pasta)}</b> do cofre e nunca altera notas existentes. Sem conexão, as notas ficam na fila deste aparelho.</p>
+  <form class="card" id="fob"><h3>Segundo cérebro: Obsidian <span class="pill" id="obst2">pela ponte do Mac</span></h3>
+    <p class="muted small">Padrão: a <b>Ponte do Mac</b> grava as notas direto no cofre, só dentro da pasta <b>Chefe Geral</b>, e nunca altera notas existentes. Uma vez no Mac: <code>./scripts/set-obsidian.sh ~/Documents/Obsidian</code>. Sem o Mac ao alcance (celular), as notas ficam na fila deste aparelho e vão quando o Mac aparecer.</p>
+    <label class="check"><input type="checkbox" id="obrest" ${c.obsidian.via === "rest" ? "checked" : ""}> Usar o plugin Local REST API em vez da ponte (opcional)</label>
+    <details><summary class="muted small">Plugin Local REST API (opcional)</summary>
     <div class="passo"><b>1</b><div>No Obsidian do Mac: Ajustes › Plugins da comunidade › Ativar › Procurar <b>Local REST API</b> › Instalar › Ativar.</div></div>
     <div class="passo"><b>2</b><div>Nas opções do plugin, copie a <b>API Key</b> e cole aqui.</div></div>
     <div class="passo"><b>3</b><div>No Chrome do Mac, abra <code>https://127.0.0.1:27124</code> uma vez e aceite o certificado.</div></div>
     <label class="campo">Endereço<input id="obu" value="${esc(c.obsidian.url)}"></label>
     <label class="campo">API Key<input id="obk" type="password" ${seg(c.obsidian.chave, "cole aqui")}></label>
-    <label class="campo">Nome do cofre (para abrir notas pelo link obsidian://)<input id="obv" value="${esc(c.obsidian.cofre)}"></label>
+    </details>
+    <label class="campo">Nome do cofre (para abrir notas pelo link obsidian://; o Testar preenche)<input id="obv" value="${esc(c.obsidian.cofre)}"></label>
     <label class="check"><input type="checkbox" id="obc" ${c.obsidian.captura ? "checked" : ""}> Captura contínua (pedidos, notas e reuniões viram notas)</label>
     <div class="row-btn"><button class="primary">Salvar</button><button type="button" class="ghost" data-t="obsidian">Testar</button><button type="button" class="ghost" id="obs">Sincronizar fila</button></div></form>
 
@@ -66,7 +69,7 @@ export default async function abrir(el) {
   import("../engines/grok-webhook.js").then(m => m.saude()).then(s => { const p = $("#pst", el); if (!p) return; p.className = "pill " + (s.ligada && s.chave_presente ? "ok" : "no"); p.textContent = c.grok.modo !== "ponte" ? "modo direto" : s.ligada ? (s.chave_presente ? "ponte ligada" : "ponte sem chave") : "ponte desligada"; });
   $("#fo", el).onsubmit = e => { e.preventDefault(); gravar({ollama: {url: $("#ou", el).value.trim(), modelo: $("#om", el).value.trim()}}); salvo(); };
   $("#ft", el).onsubmit = e => { e.preventDefault(); gravar({telegram: {chat_id: $("#tc", el).value.trim(), bot: $("#tb", el).value.trim().replace(/^@/, ""), ...($("#tk", el).value ? {token: $("#tk", el).value.trim()} : {})}}); salvo(); reabrir(el); };
-  $("#fob", el).onsubmit = e => { e.preventDefault(); gravar({obsidian: {url: $("#obu", el).value.trim(), cofre: $("#obv", el).value.trim(), captura: $("#obc", el).checked, ...($("#obk", el).value ? {chave: $("#obk", el).value.trim()} : {})}}); salvo(); reabrir(el); };
+  $("#fob", el).onsubmit = e => { e.preventDefault(); gravar({obsidian: {via: $("#obrest", el).checked ? "rest" : "ponte", url: $("#obu", el).value.trim(), cofre: $("#obv", el).value.trim(), captura: $("#obc", el).checked, ...($("#obk", el).value ? {chave: $("#obk", el).value.trim()} : {})}}); salvo(); reabrir(el); };
   el.addEventListener("click", async e => {
     const b = e.target.closest("button"); if (!b) return;
     try {

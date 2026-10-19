@@ -1,6 +1,7 @@
 // Segundo cérebro no Obsidian. Escreve SOMENTE dentro da pasta "Chefe Geral" do cofre e nunca sobrescreve notas.
-// Caminho preferido: plugin Local REST API no Mac (https://127.0.0.1:27124). Sem ele, as notas ficam na fila do app.
-import {ler} from "../core/config.js";
+// Caminho padrão: Ponte do Mac (POST /obsidian/nota, GET /obsidian/busca), que escreve direto no cofre.
+// Opcional: plugin Local REST API (Canais › Obsidian › via REST). Sem Mac ao alcance, as notas ficam na fila do app.
+import {ler, gravar} from "../core/config.js";
 import {salvar, pagina, atualizar, agoraISO} from "../core/db.js";
 const PASTAS = {pedidos: "Pedidos", reunioes: "Reunioes", notas: "Notas de voz", tarefas: "Tarefas", agenda: "Agenda", mensagens: "Mensagens", decisoes: "Decisoes", inbox: "Inbox"};
 const slug = s => (s || "nota").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s-]/g, "").trim().slice(0, 50).replace(/\s+/g, " ") || "nota";
@@ -21,7 +22,18 @@ async function rest(metodo, caminho, corpo, tipo = "text/markdown") {
   return r;
 }
 const enc = p => p.split("/").map(encodeURIComponent).join("/");
+const ponte = () => ler().grok.ponte.replace(/\/$/, "");
+const viaRest = () => ler().obsidian.via === "rest" && !!ler().obsidian.chave;
 async function escrever(n) {
+  if (!viaRest()) {
+    let r;
+    try { r = await fetch(ponte() + "/obsidian/nota", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({id: n.id, caminho: n.caminho, md: n.md, titulo: n.titulo, quando: n.quando})}); }
+    catch { throw new Error("Mac fora de alcance: fica na fila"); }
+    const j = await r.json().catch(() => ({}));
+    const e = j.resultados?.[0]?.estado;
+    if (!r.ok || !["criado", "ja_existe"].includes(e)) throw new Error(j.erro || e || "Ponte HTTP " + r.status);
+    return;
+  }
   const pasta = ler().obsidian.pasta || "Chefe Geral";
   if (!n.caminho.startsWith(pasta + "/")) throw new Error("Fora da pasta permitida");
   const existe = await rest("GET", "/vault/" + enc(n.caminho));
@@ -38,7 +50,7 @@ export async function capturar(dados) {
   if (!c.captura) return null;
   const m = montar(dados);
   const n = await salvar("memoria", {...m, titulo: dados.titulo, modulo: dados.modulo, status: "fila"});
-  if (c.chave) escrever(n).then(() => atualizar("memoria", n.id, x => x.status = "enviado"))
+  escrever(n).then(() => atualizar("memoria", n.id, x => x.status = "enviado"))
     .catch(e => atualizar("memoria", n.id, x => x.erro = e.message));
   return n;
 }
@@ -58,9 +70,15 @@ export function uriNova(n) {
 // Busca para contexto do motor: REST /search/simple quando disponível; senão, palavras-chave na fila local.
 export async function buscarContexto(texto, max = 3) {
   const c = ler().obsidian;
-  const termos = (texto || "").toLowerCase().split(/\W+/).filter(w => w.length > 4).slice(0, 6);
+  const termos = (texto || "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 3).slice(0, 8);
   if (!termos.length) return [];
-  if (c.chave) {
+  if (!viaRest()) {
+    try {
+      const ac = new AbortController(); setTimeout(() => ac.abort(), 4000);
+      const r = await fetch(ponte() + "/obsidian/busca?max=" + max + "&q=" + encodeURIComponent(termos.join(" ")), {signal: ac.signal});
+      if (r.ok) { const j = await r.json(); if (j.resultados) return j.resultados.slice(0, max); }
+    } catch {}
+  } else {
     try {
       const r = await rest("POST", "/search/simple/?contextLength=160&query=" + encodeURIComponent(termos.join(" ")), null);
       if (r.ok) return (await r.json()).slice(0, max).map(x => ({arquivo: x.filename, score: x.score, trecho: (x.matches || []).map(m => m.context).join(" ... ").slice(0, 500), fonte: "obsidian"}));
@@ -71,6 +89,14 @@ export async function buscarContexto(texto, max = 3) {
     .slice(0, max).map(({n, s}) => ({arquivo: n.caminho, score: s, trecho: n.md.replace(/^---[\s\S]*?---/, "").trim().slice(0, 500), fonte: "fila-do-app"}));
 }
 export async function testar() {
+  if (!viaRest()) {
+    let j;
+    try { j = await (await fetch(ponte() + "/health")).json(); } catch { throw new Error("Ponte do Mac fora de alcance"); }
+    const o = j.obsidian || {};
+    if (!o.cofre_configurado) throw new Error("Ponte ligada, mas sem cofre. No Mac: ./scripts/set-obsidian.sh");
+    if (o.cofre_nome && !ler().obsidian.cofre) gravar({obsidian: {cofre: o.cofre_nome}});
+    return `Cofre ${o.cofre_nome} pela ponte do Mac (${o.notas_criadas} notas do Chefe Geral)`;
+  }
   const r = await rest("GET", "/");
   if (!r.ok) throw new Error("HTTP " + r.status);
   const j = await r.json(); return j.authenticated ? "Conectado ao Obsidian" : "Obsidian respondeu, mas a chave não foi aceita";

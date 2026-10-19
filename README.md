@@ -72,25 +72,23 @@ Quando o app do Mac vê a ponte ligada, reenvia a fila sozinho (sem duplicar).
 
 Envio: até 4096 caracteres vai como mensagem (`sendMessage`); acima disso vai como arquivo `.md` (`sendDocument`). Na reunião você pode anexar a transcrição completa em `.md`.
 
-### 3. Segundo cérebro: Obsidian
-O app grava **só** dentro da pasta `Chefe Geral` do cofre e **nunca** altera notas existentes (confere antes e não sobrescreve).
-1. Obsidian no Mac › Ajustes › Plugins da comunidade › Ativar plugins da comunidade › Procurar › **Local REST API** › Instalar › Ativar.
-2. Nas opções do plugin, copie a **API Key**.
-3. No Chrome do Mac, abra `https://127.0.0.1:27124` uma vez e aceite o certificado do plugin.
-4. No app: Canais › Obsidian › cole a chave, informe o nome do cofre, **Testar** e **Sincronizar fila**.
-
-Estrutura criada no cofre:
+### 3. Segundo cérebro: Obsidian (pela Ponte do Mac)
+A ponte grava as notas **direto no cofre**, só dentro de `Chefe Geral/`, e nunca altera notas existentes (não sobrescreve; sem duplicar por id). Configure o cofre uma vez (o caminho fica só no Mac, em relay.json):
+```
+./scripts/set-obsidian.sh ~/Documents/Obsidian
+```
+- Capturas do Telegram (texto, voz transcrita, `/reuniao`) viram nota na hora.
+- O app manda a fila dele para `POST /obsidian/nota` sempre que alcança o Mac (do celular, quando você abrir o app no Mac).
+- Cada nota ganha uma linha em `Chefe Geral/Diario/AAAA-MM-DD.md`.
+- Contexto: `GET /obsidian/busca?q=` procura no cofre inteiro (só leitura, sem `.obsidian/`), até 5 trechos. A ponte preenche `obsidian_context` quando o app não mandou.
+- `/salvar texto` no bot guarda o texto em `Chefe Geral/Respostas/` sem mandar ao Chefe Geral (use para salvar respostas do chat).
+- Plugin Local REST API: opcional (Canais › Obsidian).
 ```
 Chefe Geral/
-  Pedidos/      AAAA-MM-DD HHhMM titulo id.md
-  Reunioes/     transcrição e resumo
-  Notas de voz/
-  Inbox/
-  Diario/       AAAA-MM-DD.md (uma linha por captura, com link)
+  Pedidos/  Reunioes/  Notas de voz/  Tarefas/  Agenda/  Respostas/  Inbox/
+  Diario/AAAA-MM-DD.md
 ```
-Cada nota tem frontmatter YAML: `data` (BRT), `modulo`, `id`, `origem`, `tags`.
-Sem o plugin (ou no celular), as notas ficam na fila do aparelho (IndexedDB) e vão para o cofre quando você tocar em Sincronizar no Mac.
-Contexto: antes de enviar um pedido, o app busca notas relacionadas (`/search/simple/` do plugin, ou a fila local) e manda os trechos no campo `obsidian_context`.
+Frontmatter de cada nota: `data` (BRT), `modulo`, `id`, `origem`, `tags`.
 
 ### 4. Motor 2: Ollama no Mac (experimental)
 IA aberta e gratuita. Responde aqui no app; não executa nas ferramentas.

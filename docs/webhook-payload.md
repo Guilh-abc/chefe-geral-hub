@@ -44,6 +44,9 @@ Para `tipo: "teste"`: só confirmar o recebimento. Pedidos vindos do Telegram t�
 
 Resposta esperada: qualquer HTTP 2xx. Opcionalmente JSON `{"camada": 5, "status": "andamento", "resposta": "texto"}`; se vier `resposta`, o app mostra e marca o pedido como concluído.
 
+## obsidian_context
+Lista de até 3 trechos `{arquivo, score, trecho, fonte}`. O app preenche pela busca da ponte; se vier vazio, a própria ponte preenche antes de repassar.
+
 ## CORS
 O app usa a **Ponte do Mac** (`http://127.0.0.1:8788/pedido`), que repassa com o cabeçalho `Authorization` lido de `~/Library/Application Support/ChefeGeral/webhook.key`. A ponte devolve `{ok, webhook_status, resposta}`. O texto abaixo vale só para o modo direto.
 

@@ -42,6 +42,7 @@ HTML, CSS e JavaScript puro (ES modules). Sem npm, sem build, sem framework.
 3. Dados novos: adicione a store em `STORES` de `core/db.js` e suba `VERSAO`.
 
 ## Ponte do Mac e Motor 2
+- Obsidian: a ponte escreve direto no cofre configurado em relay.json (`obsidian_cofre`, via `./scripts/set-obsidian.sh`), só em `Chefe Geral/`. Nunca coloque o caminho do cofre no código. A busca (`/obsidian/busca`) é só leitura.
 - Ponte: `relay/relay.py` em 127.0.0.1:8788 (LaunchAgent `com.chefegeral.relay`). Instalar: `./scripts/install-relay.sh`. Estado: `./scripts/relay-status.sh`.
 - Chave do webhook e token do Telegram ficam em `~/Library/Application Support/ChefeGeral/` (chmod 600) e são digitados pelo Guilherme em `./scripts/set-webhook-key.sh` e `./scripts/set-telegram.sh`. Agentes nunca leem, imprimem ou registram esses arquivos.
 - Ollama (Motor 2): `OLLAMA_ORIGINS` fica fixo no login pelo LaunchAgent `com.chefegeral.ollama-origins` (instalado junto com a ponte), com valor `https://guilh-abc.github.io,http://localhost:*,http://127.0.0.1:*`. Depois de mudar, reabra o Ollama.

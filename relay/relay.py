@@ -7,6 +7,8 @@ HTTP em 127.0.0.1:8788
   GET  /mensagens       últimas mensagens recebidas do seu bot (log local, sem segredos)
   GET  /memoria         capturas pendentes para o Obsidian (o app importa e grava no cofre)
   POST /memoria/ok      {"ids": [...]} marca capturas como importadas
+  POST /obsidian/nota   {id, caminho, md, titulo, quando} ou {"notas": [...]}: grava no cofre, em "Chefe Geral/", sem duplicar por id
+  GET  /obsidian/busca?q=   busca de texto no cofre inteiro (só leitura), até 5 trechos
   POST /transcrever     corpo = o áudio (audio/*). Transcreve no VoiceStudio (pt) e devolve {ok, texto}. O áudio é apagado depois.
 
 Transcrição: VoiceStudio em 127.0.0.1:3900 (/v1/audio/transcriptions, faster-whisper large-v3). Nada sai do Mac.
@@ -144,6 +146,7 @@ def repassar(payload):
     pid = ((payload or {}).get("pedido") or {}).get("id")
     if pid and pid != "teste" and ja_enviado(pid):
         return 200, json.dumps({"duplicado": True, "detalhe": "Pedido já repassado antes"})
+    payload = completar_contexto(payload)
     dados = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(c["webhook_url"], data=dados, method="POST",
                                  headers={"Content-Type": "application/json", "Authorization": chave,
@@ -164,16 +167,179 @@ def repassar(payload):
         return 502, f"Falha de rede: {e}"
 
 
-# ---------- Obsidian (fila de capturas) ----------
-def capturar(modulo, titulo, corpo, pid, tags=()):
+# ---------- Obsidian (segundo cérebro) ----------
+# Escreve SÓ dentro de <cofre>/<pasta> (padrão "Chefe Geral"). Nunca sobrescreve nem altera notas existentes;
+# a única nota que recebe linhas novas é o diário do próprio Chefe Geral (Chefe Geral/Diario/AAAA-MM-DD.md).
+# O caminho do cofre fica em relay.json ("obsidian_cofre") no Mac, nunca no código público.
+OBS_INDICE = os.path.join(DIR, "obsidian-indice.json")
+PASTAS_OBS = {"pedidos": "Pedidos", "reunioes": "Reunioes", "notas": "Notas de voz", "tarefas": "Tarefas",
+              "agenda": "Agenda", "mensagens": "Mensagens", "decisoes": "Decisoes", "respostas": "Respostas"}
+
+
+def cofre():
+    c = cfg()
+    raiz = os.path.expanduser(c.get("obsidian_cofre") or "")
+    if not raiz or not os.path.isdir(os.path.join(raiz, ".obsidian")):
+        return None, None
+    return os.path.realpath(raiz), (c.get("obsidian_pasta") or "Chefe Geral").strip("/")
+
+
+def _dentro(raiz, pasta, rel):
+    """Caminho absoluto seguro para rel (que precisa começar com a pasta), ou None."""
+    rel = (rel or "").replace("\\", "/").lstrip("/")
+    partes = rel.split("/")
+    if not rel.endswith(".md") or partes[0] != pasta or any(x in ("", ".", "..") for x in partes) or len(rel) > 400:
+        return None
+    base = os.path.realpath(os.path.join(raiz, pasta))
+    alvo = os.path.realpath(os.path.join(raiz, rel))
+    if os.path.dirname(base) != raiz or not alvo.startswith(base + os.sep):
+        return None
+    return alvo
+
+
+def montar_nota(modulo, titulo, corpo, nid, origem="ponte-mac", tags=()):
     q = agora()
-    slug = re.sub(r"[^\w\s-]", "", titulo, flags=re.U).strip()[:50] or "nota"
-    pasta = {"pedidos": "Pedidos", "reunioes": "Reunioes", "notas": "Notas de voz"}.get(modulo, "Inbox")
-    caminho = f"Chefe Geral/{pasta}/{q[:10]} {q[11:16].replace(':', 'h')} {slug} {str(pid)[-4:]}.md"
-    tg = ", ".join(json.dumps(t, ensure_ascii=False) for t in ("chefe-geral", modulo, "telegram") + tuple(tags))
-    md = f"---\ndata: {q}\nmodulo: {modulo}\nid: {json.dumps(str(pid))}\norigem: ponte-mac\ntags: [{tg}]\n---\n\n# {titulo}\n\n{corpo}\n"
-    anexar_jsonl(MEMORIA, {"id": "m" + uuid.uuid4().hex[:10], "caminho": caminho, "md": md, "titulo": titulo,
-                           "modulo": modulo, "quando": q, "importado": False})
+    _, pasta = cofre()
+    pasta = pasta or (cfg().get("obsidian_pasta") or "Chefe Geral")
+    titulo = re.sub(r"\s+", " ", titulo or "Nota").strip()
+    slug = re.sub(r"[^\w\s-]", "", titulo, flags=re.U).strip()[:50].strip() or "nota"
+    caminho = f"{pasta}/{PASTAS_OBS.get(modulo, 'Inbox')}/{q[:10]} {q[11:16].replace(':', 'h')} {slug} {str(nid)[-4:]}.md"
+    tg = ", ".join(json.dumps(t, ensure_ascii=False) for t in ("chefe-geral", modulo) + tuple(tags))
+    md = f"---\ndata: {q}\nmodulo: {modulo}\nid: {json.dumps(str(nid))}\norigem: {origem}\ntags: [{tg}]\n---\n\n# {titulo}\n\n{corpo}\n"
+    return {"id": str(nid), "caminho": caminho, "md": md, "titulo": titulo, "modulo": modulo, "quando": q}
+
+
+def escrever_nota(n):
+    """Grava a nota no cofre. Idempotente por id. Retorna (estado, caminho)."""
+    raiz, pasta = cofre()
+    if not raiz:
+        return "sem_cofre", None
+    nid = str(n.get("id") or "")
+    if not nid:
+        return "erro: sem id", None
+    with LOCK:
+        indice = ler_json(OBS_INDICE, {})
+        if nid in indice:
+            return "ja_existe", indice[nid]
+        rel = n.get("caminho") or ""
+        alvo = _dentro(raiz, pasta, rel)
+        if not alvo:
+            return "erro: caminho fora da pasta permitida", None
+        if os.path.exists(alvo):
+            base, ext = os.path.splitext(alvo)
+            alvo = f"{base} {nid[-6:]}{ext}"
+            rel = os.path.relpath(alvo, raiz)
+            if os.path.exists(alvo):
+                indice[nid] = rel
+                gravar_json(OBS_INDICE, indice)
+                return "ja_existe", rel
+        os.makedirs(os.path.dirname(alvo), exist_ok=True)
+        with open(alvo, "x", encoding="utf-8") as f:
+            f.write(n.get("md") or "")
+        indice[nid] = os.path.relpath(alvo, raiz)
+        gravar_json(OBS_INDICE, indice)
+        rel = indice[nid]
+        # Diário do Chefe Geral: cria se não existir e acrescenta uma linha com link.
+        q = n.get("quando") or agora()
+        diario = os.path.join(raiz, pasta, "Diario", q[:10] + ".md")
+        os.makedirs(os.path.dirname(diario), exist_ok=True)
+        novo = not os.path.exists(diario)
+        titulo = re.sub(r"[\[\]|\n]", " ", n.get("titulo") or "nota").strip()[:80]
+        with open(diario, "a", encoding="utf-8") as f:
+            if novo:
+                f.write(f"---\ndata: {q[:10]}\nmodulo: diario\norigem: ponte-mac\ntags: [\"chefe-geral\", \"diario\"]\n---\n\n# Diário {q[:10]}\n\n")
+            f.write(f"- {q[11:16]} [[{rel[:-3]}|{titulo}]]\n")
+    log(f"obsidian nota criada: {rel}")
+    return "criado", rel
+
+
+def capturar(modulo, titulo, corpo, pid, tags=()):
+    """Captura do Telegram: grava já no cofre; sem cofre configurado, vai para a fila (GET /memoria)."""
+    n = montar_nota(modulo, titulo, corpo, str(pid), tags=("telegram",) + tuple(tags))
+    try:
+        estado, _ = escrever_nota(n)
+    except Exception as e:
+        log(f"obsidian falhou: {e}")
+        estado = "erro"
+    if estado not in ("criado", "ja_existe"):
+        anexar_jsonl(MEMORIA, {**n, "importado": False})
+
+
+def esvaziar_fila_memoria():
+    """Grava no cofre as capturas antigas que ficaram na fila. Retorna quantas foram gravadas."""
+    if not cofre()[0]:
+        return 0
+    with LOCK:
+        notas = ler_jsonl(MEMORIA, 100000)
+    feitas = 0
+    for x in notas:
+        if x.get("importado") or x.get("no_cofre"):
+            continue
+        try:
+            estado, _ = escrever_nota(x)
+        except Exception as e:
+            log(f"obsidian fila falhou: {e}")
+            continue
+        if estado in ("criado", "ja_existe"):
+            x["no_cofre"] = True
+            feitas += estado == "criado"
+    with LOCK:
+        with open(MEMORIA, "w", encoding="utf-8") as f:
+            for x in notas:
+                f.write(json.dumps(x, ensure_ascii=False) + "\n")
+    return feitas
+
+
+def buscar_cofre(q, maximo=5, excluir_id=None):
+    """Busca simples de texto no cofre inteiro, só leitura. Ignora pastas ocultas (.obsidian, .trash)."""
+    raiz, pasta = cofre()
+    termos = [t for t in re.findall(r"\w+", (q or "").lower(), flags=re.U) if len(t) > 3][:8]
+    if not raiz or not termos:
+        return []
+    achados, lidos = [], 0
+    for d, ds, fs in os.walk(raiz):
+        ds[:] = [x for x in ds if not x.startswith(".") and not (x == "Diario" and os.path.basename(d) == pasta)]
+        for f in fs:
+            if not f.endswith(".md"):
+                continue
+            p = os.path.join(d, f)
+            try:
+                if os.path.getsize(p) > 2_000_000:
+                    continue
+                with open(p, encoding="utf-8", errors="replace") as h:
+                    txt = h.read()
+            except OSError:
+                continue
+            lidos += 1
+            if excluir_id and f'id: "{excluir_id}"' in txt[:600]:
+                continue
+            txt = re.sub(r"\A---\n.*?\n---\n", "", txt, flags=re.S)
+            baixo = txt.lower()
+            score = sum(baixo.count(t) for t in termos) + 3 * sum(t in f.lower() for t in termos)
+            if not score:
+                continue
+            achou = sum(1 for t in termos if t in baixo or t in f.lower())
+            i = min([baixo.find(t) for t in termos if t in baixo] or [0])
+            corpo = re.sub(r"\s+", " ", txt[max(0, i - 120):i + 240]).strip()
+            achados.append({"arquivo": os.path.relpath(p, raiz), "score": achou * 100 + score, "trecho": corpo, "fonte": "obsidian"})
+            if lidos > 20000:
+                break
+    achados.sort(key=lambda x: -x["score"])
+    return achados[:maximo]
+
+
+def completar_contexto(payload):
+    """Se o app não mandou obsidian_context, a ponte preenche com a busca no cofre."""
+    try:
+        if isinstance(payload, dict) and not payload.get("obsidian_context"):
+            texto = ((payload.get("pedido") or {}).get("texto") or "")[:500]
+            pid = str((payload.get("pedido") or {}).get("id") or "")
+            ctx = buscar_cofre(texto, 3, excluir_id=None if not pid else (pid if pid.startswith("tg") else pid))
+            if ctx:
+                payload["obsidian_context"] = ctx
+    except Exception as e:
+        log(f"contexto obsidian falhou: {e}")
+    return payload
 
 
 # ---------- Telegram ----------
@@ -345,8 +511,25 @@ def tratar_mensagem(m):
             texto = corpo
             if tag.group(1) == "reuniao":
                 tipo, modulo, anexos = "reuniao_resumo", "reunioes", {"transcricao": corpo, "regras": []}
+    if re.match(r"^/(salvar|nota)\b", texto):
+        # Guarda no Obsidian sem mandar ao Chefe Geral (ex.: resposta do chat colada aqui).
+        corpo = re.sub(r"^/(salvar|nota)\b\s*", "", texto).strip()
+        if not corpo:
+            tg_responder("Mande /salvar seguido do texto (por exemplo, a resposta do Chefe Geral copiada do chat).")
+            return
+        n = montar_nota("respostas", corpo.split("\n")[0][:60], corpo, pid, tags=("telegram", "resposta"))
+        try:
+            estado, rel = escrever_nota(n)
+        except Exception as e:
+            estado, rel = f"erro: {e}", None
+        if estado not in ("criado", "ja_existe"):
+            anexar_jsonl(MEMORIA, {**n, "importado": False})
+            tg_responder("Guardei na fila do Mac; vai para o Obsidian quando o cofre estiver configurado.")
+        else:
+            tg_responder(f"Salvo no Obsidian: {rel}")
+        return
     if texto.startswith("/start"):
-        tg_responder("Ponte do Chefe Geral ligada. Mande texto ou nota de voz e eu repasso ao Chefe Geral. Use /reuniao na legenda de um áudio ou .txt para pedir o resumo da reunião.")
+        tg_responder("Ponte do Chefe Geral ligada. Mande texto ou nota de voz e eu repasso ao Chefe Geral. Use /reuniao na legenda de um áudio ou .txt para pedir o resumo da reunião. Use /salvar + texto para guardar algo no Obsidian (por exemplo, uma resposta do Chefe Geral).")
         return
     nome_doc = ((m.get("document") or {}).get("file_name") or "").lower()
     reuniao = texto.startswith("/reuniao") or tipo == "reuniao_resumo" or nome_doc.startswith("reuniao")
@@ -507,11 +690,16 @@ class Ponte(BaseHTTPRequestHandler):
                                         "webhook_configurado": bool(c["webhook_url"]), "chave_presente": bool(ler_segredo(KEY)),
                                         "telegram": {"token_presente": bool(ler_segredo(TOKEN)), "chat_id_definido": bool(c["chat_id"]),
                                                      "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"]},
+                                        "obsidian": {"cofre_configurado": bool(cofre()[0]), "pasta": cofre()[1], "cofre_nome": os.path.basename(cofre()[0] or ""),
+                                                     "notas_criadas": len(ler_json(OBS_INDICE, {}))},
                                         "transcricao_local": {"motor": "VoiceStudio (faster-whisper large-v3)", "ligado": vs_ligado(),
                                                               "pendentes": len(pendentes())}})
         if u.path == "/mensagens":
             lim = int((urllib.parse.parse_qs(u.query).get("limite") or ["30"])[0])
             return self.responder(200, {"mensagens": list(reversed(ler_jsonl(MSGS, min(lim, 200))))})
+        if u.path == "/obsidian/busca":
+            qs = urllib.parse.parse_qs(u.query)
+            return self.responder(200, {"resultados": buscar_cofre((qs.get("q") or [""])[0], min(int((qs.get("max") or ["5"])[0]), 10))})
         if u.path == "/memoria":
             return self.responder(200, {"notas": [n for n in ler_jsonl(MEMORIA, 1000) if not n.get("importado")]})
         return self.responder(404, {"erro": "rota desconhecida"})
@@ -537,6 +725,17 @@ class Ponte(BaseHTTPRequestHandler):
                 resp = None
             return self.responder(st if st >= 200 else 502, {"ok": 200 <= st < 300, "webhook_status": st,
                                                             "resposta": resp, "detalhe": None if resp is not None else txt[:300]})
+        if path == "/obsidian/nota":
+            if not cofre()[0]:
+                return self.responder(503, {"ok": False, "erro": "Cofre do Obsidian não configurado na ponte (scripts/set-obsidian.sh)"})
+            res = []
+            for nota in (corpo.get("notas") if isinstance(corpo.get("notas"), list) else [corpo])[:500]:
+                try:
+                    estado, rel = escrever_nota(nota)
+                except Exception as e:
+                    estado, rel = f"erro: {e}", None
+                res.append({"id": nota.get("id"), "estado": estado, "caminho": rel})
+            return self.responder(200, {"ok": all(r["estado"] in ("criado", "ja_existe") for r in res), "resultados": res})
         if path == "/memoria/ok":
             ids = set(corpo.get("ids") or [])
             with LOCK:
@@ -559,6 +758,12 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", porta), Ponte)
     threading.Thread(target=loop_telegram, daemon=True).start()
     threading.Thread(target=loop_stt, daemon=True).start()
+    try:
+        n = esvaziar_fila_memoria()
+        if n:
+            log(f"obsidian: {n} captura(s) antigas gravadas no cofre")
+    except Exception as e:
+        log(f"obsidian fila inicial falhou: {e}")
     log(f"ponte ligada em 127.0.0.1:{porta}")
     print(f"Ponte do Chefe Geral em http://127.0.0.1:{porta}", flush=True)
     srv.serve_forever()
