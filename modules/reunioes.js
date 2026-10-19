@@ -55,6 +55,21 @@ export default async function abrir(el) {
         <div class="row-btn"><button class="primary" id="renv">Enviar no meu Telegram</button><button class="ghost" id="rcop">Copiar</button><button class="ghost" id="rvolta">Voltar</button></div>
         <p class="muted small">Vai só para o seu chat do Telegram e só depois do seu toque. Acima de 4096 caracteres vira arquivo .md.</p></div>`;
   }
+  // Mac fora de alcance (ex.: no celular): fica na fila e oferece mandar pelo Telegram.
+  async function celular(p, regras) {
+    const {linkTelegram} = await import("../engines/grok-webhook.js");
+    const link = linkTelegram(p, {tipo: "reuniao_resumo", anexos: {titulo: r.titulo, regras, transcricao: r.transcricao}});
+    const nome = `reuniao-${r.criado_em.slice(0, 10)}.txt`;
+    const arquivo = new File([`Título: ${r.titulo}\n\nRegras:\n- ${regras.join("\n- ")}\n\nTranscrição:\n${r.transcricao}\n`], nome, {type: "text/plain"});
+    const podeArquivo = navigator.canShare?.({files: [arquivo]});
+    const box = document.createElement("div");
+    box.className = "card"; box.innerHTML = `<h3>Mac fora de alcance</h3><p class="muted small">O pedido ficou na fila e vai sozinho quando a ponte do Mac ligar. Para ir já pelo Telegram:</p>
+      <div class="row-btn">${link ? `<a class="tg" href="${esc(link)}" target="_blank" rel="noopener">Abrir no Telegram</a>` : ""}${podeArquivo ? `<button class="ghost" id="rshare">Compartilhar ${nome} no Telegram</button>` : ""}</div>
+      <p class="muted small">${link ? "Abre o chat do seu bot com o texto pronto; toque em Enviar lá." : ""} ${podeArquivo ? "O arquivo chamado reuniao-... é entendido pela ponte como reunião." : ""} ${!link && !podeArquivo ? "Informe o usuário do bot em Canais > Telegram." : ""}</p>`;
+    el.prepend(box); el.scrollIntoView();
+    box.querySelector("#rshare")?.addEventListener("click", () => navigator.share({files: [arquivo], text: "/reuniao " + r.titulo}).catch(() => {}));
+    aviso("Mac fora de alcance: na fila.");
+  }
   const salvarCampos = async () => { r = await atualizar("reunioes", r.id, x => { x.titulo = $("#rti", el).value; x.transcricao = $("#rtr", el).value; x.resumo = $("#rres", el).value; }); };
   const memoria = (titulo, corpo, tags) => import("../memory/obsidian.js").then(m => m.capturar({modulo: "reunioes", titulo, corpo, tags, id: r.id})).catch(() => {});
 
@@ -83,6 +98,7 @@ export default async function abrir(el) {
       aviso("Enviando ao " + (motor === "grok" ? "Chefe Geral" : "Motor 2") + "...");
       const res = await enviarAoMotor(p, {tipo: "reuniao_resumo", anexos: {reuniao_id: r.id, titulo: r.titulo, regras, transcricao: r.transcricao, duracao_s: r.duracao_s || null}});
       if (res.status === "erro") return aviso(res.historico.at(-1).nota, true);
+      if (res.entrega?.estado === "aguardando_ponte") return celular(p, regras);
       if (res.resposta) { r = await atualizar("reunioes", r.id, x => { x.resumo = res.resposta; x.fonte_resumo = motor; }); return revisar(); }
       return aviso("Transcrição entregue ao Chefe Geral. O resumo chega no chat ou Telegram; cole aqui para revisar.");
     }

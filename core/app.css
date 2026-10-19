@@ -113,3 +113,9 @@ dialog.sheet::backdrop{background:#000a}
   .cartoes{grid-template-columns:1fr 1fr}
   .aviso{bottom:24px}
 }
+
+.ponte{display:flex;align-items:center;gap:6px;border:1px solid var(--l);background:var(--c);border-radius:99px;padding:5px 10px;font-size:11.5px;color:var(--m)}
+.ponte i{width:8px;height:8px;border-radius:50%;background:var(--fila)}.ponte.on i{background:var(--ok)}.ponte.off i{background:var(--warn)}
+.ponte.on span{color:#86efac}
+.nota-ponte{margin-top:8px;font-size:12.5px;color:#fcd34d}
+a.tg{display:inline-block;text-decoration:none;font-size:12.5px;padding:6px 11px;border-radius:9px;background:#229ED9;color:#fff;font-weight:600}

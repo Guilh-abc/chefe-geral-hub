@@ -1,0 +1,15 @@
+# Ponte na nuvem (Cloudflare Worker). NÃO ATIVADA. Veja cloud/README.md antes de qualquer deploy.
+name = "chefe-geral-ponte"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+# Valores não secretos. Os segredos vão com `wrangler secret put` (nunca neste arquivo).
+ALLOWED_ORIGIN = "https://guilh-abc.github.io"
+CHAT_ID = ""        # seu chat_id do Telegram (número). Só ele é atendido.
+
+# Fila de mensagens e capturas para o app ler (opcional). Crie com: wrangler kv namespace create CHEFE
+# [[kv_namespaces]]
+# binding = "CHEFE"
+# id = "COLOQUE_O_ID_AQUI"

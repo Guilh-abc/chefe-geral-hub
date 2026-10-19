@@ -22,9 +22,22 @@ export async function enviarAoMotor(p, extra = {}) {
   const motor = p.motor === "ollama" ? await import("../engines/ollama.js") : await import("../engines/grok-webhook.js");
   try {
     const r = await motor.enviar({tipo: extra.tipo || "pedido", pedido: p, obsidian_context: ctx, anexos: extra.anexos});
+    await atualizar("pedidos", p.id, x => { x.entrega = {estado: "entregue", em: agoraISO()}; delete x.extra; });
     if (r.resposta) return marcar(p.id, {camada: 7, status: "concluido", nota: r.detalhe, resposta: r.resposta});
     return marcar(p.id, {camada: r.camada || 4, status: r.status || "andamento", nota: r.detalhe});
   } catch (e) {
+    if (e.code === "PONTE_OFF") {
+      await atualizar("pedidos", p.id, x => { x.entrega = {estado: "aguardando_ponte", em: agoraISO()}; x.extra = extra; });
+      return marcar(p.id, {camada: 3, status: "fila", nota: "Mac fora de alcance: fica na fila e vai sozinho quando a ponte ligar (ou mande pelo Telegram)"});
+    }
     return marcar(p.id, {camada: 4, status: "erro", nota: e.message});
   }
+}
+// Reenvia o que ficou esperando a ponte do Mac. A ponte não duplica (usa o id do pedido).
+export async function reenviarFila() {
+  const {pagina} = await import("./db.js");
+  const fila = await pagina("pedidos", {limite: 50, filtro: p => p.status === "fila" && p.entrega?.estado === "aguardando_ponte"});
+  let n = 0;
+  for (const p of fila.reverse()) { const r = await enviarAoMotor(p, p.extra || {}); if (r.entrega?.estado !== "aguardando_ponte") n++; else break; }
+  return n;
 }

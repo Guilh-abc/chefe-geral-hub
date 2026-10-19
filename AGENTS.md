@@ -3,7 +3,8 @@
 Guia para agentes (opencode e outros) que trabalham neste repositório.
 
 ## O que é
-PWA estático publicado no GitHub Pages: https://guilh-abc.github.io/chefe-geral-hub/
+PWA estático publicado no GitHub Pages. **Endereço do app: https://guilh-abc.github.io/chefe-geral-hub/** (com a barra final).
+Um 404 em https://guilh-abc.github.io/ (a raiz, sem `/chefe-geral-hub/`) é **esperado**: não existe site de usuário e não deve ser criado. Não crie o repositório `guilh-abc.github.io` nem redirecionamentos.
 HTML, CSS e JavaScript puro (ES modules). Sem npm, sem build, sem framework.
 
 ## Arquitetura: a casa
@@ -39,6 +40,12 @@ HTML, CSS e JavaScript puro (ES modules). Sem npm, sem build, sem framework.
 1. Crie `modules/<id>.js` com `export default async function abrir(el) {}`.
 2. Em `core/shell.js`, no array `MODULOS`, marque `pronto: true` e, se quiser, uma função `resumo`.
 3. Dados novos: adicione a store em `STORES` de `core/db.js` e suba `VERSAO`.
+
+## Ponte do Mac e Motor 2
+- Ponte: `relay/relay.py` em 127.0.0.1:8788 (LaunchAgent `com.chefegeral.relay`). Instalar: `./scripts/install-relay.sh`. Estado: `./scripts/relay-status.sh`.
+- Chave do webhook e token do Telegram ficam em `~/Library/Application Support/ChefeGeral/` (chmod 600) e são digitados pelo Guilherme em `./scripts/set-webhook-key.sh` e `./scripts/set-telegram.sh`. Agentes nunca leem, imprimem ou registram esses arquivos.
+- Ollama (Motor 2): `OLLAMA_ORIGINS` fica fixo no login pelo LaunchAgent `com.chefegeral.ollama-origins` (instalado junto com a ponte), com valor `https://guilh-abc.github.io,http://localhost:*,http://127.0.0.1:*`. Depois de mudar, reabra o Ollama.
+- Transcrição no Mac (STT): pausada até o Guilherme escolher o motor (VoiceStudio ou SoundCraft). Não instale modelos.
 
 ## Testar localmente
 ```

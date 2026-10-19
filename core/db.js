@@ -1,6 +1,6 @@
 // IndexedDB leve: registros com paginação por cursor e arquivamento.
-const NOME = "chefe-geral", VERSAO = 1;
-const STORES = ["pedidos", "reunioes", "acoes", "memoria", "blobs", "tarefas", "notas", "mensagens"];
+const NOME = "chefe-geral", VERSAO = 2;
+const STORES = ["pedidos", "reunioes", "acoes", "memoria", "blobs", "tarefas", "notas", "mensagens", "eventos"];
 let dbp;
 function abrir() {
   if (dbp) return dbp;

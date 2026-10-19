@@ -3,6 +3,8 @@ import {$, esc, quando, aviso, STATUS} from "../core/ui.js";
 import {pagina, pegar, atualizar, arquivarAntigos} from "../core/db.js";
 import {CAMADAS, marcar, enviarAoMotor} from "../core/pipeline.js";
 
+import {linkTelegram} from "../engines/grok-webhook.js";
+const TG = p => linkTelegram(p, p.extra || {});
 const FILTROS = {abertos: ["Abertos", p => p.status === "fila" || p.status === "andamento"], erro: ["Com erro", p => p.status === "erro"],
   concluido: ["Concluídos", p => p.status === "concluido"], todos: ["Todos", null]};
 
@@ -19,8 +21,10 @@ export default async function abrir(el) {
       <div class="camadas ${p.status}">${CAMADAS.map((c, i) => `<span class="${i < n ? "on" : ""}" title="${c}"></span>`).join("")}</div>
       <div class="camada-n">Camada ${n} de 7: ${CAMADAS[n - 1]}${p.historico?.at(-1)?.nota ? " · " + esc(p.historico.at(-1).nota) : ""}</div>
       ${p.resposta ? `<div class="resposta">${esc(p.resposta)}</div>` : ""}
+      ${p.entrega?.estado === "aguardando_ponte" && p.status === "fila" ? `<div class="nota-ponte">Esperando o Mac. Vai sozinho quando a ponte ligar.</div>` : ""}
       <div class="acoes">
         ${p.status === "erro" || p.status === "fila" ? `<button data-a="enviar">Enviar de novo</button>` : ""}
+        ${p.status === "fila" && p.entrega?.estado === "aguardando_ponte" ? (TG(p) ? `<a class="tg" href="${esc(TG(p))}" target="_blank" rel="noopener">Abrir no Telegram</a>` : `<button data-a="tgcfg">Abrir no Telegram</button>`) : ""}
         ${p.status === "andamento" ? `<button data-a="c5">Ele pediu meu OK</button><button data-a="c6">Executando</button>` : ""}
         ${p.status !== "concluido" && p.status !== "cancelado" ? `<button data-a="ok">Concluído</button><button data-a="cancelar">Cancelar</button>` : `<button data-a="arquivar">Arquivar</button>`}
         <button data-a="copiar">Copiar</button>
@@ -43,6 +47,7 @@ export default async function abrir(el) {
     const id = b.closest("[data-id]")?.dataset.id; if (!id) return;
     const a = b.dataset.a;
     if (a === "enviar") { const p = await pegar("pedidos", id); aviso("Enviando..."); const r = await enviarAoMotor(p); aviso(r.status === "erro" ? r.historico.at(-1).nota : "Enviado", r.status === "erro"); }
+    if (a === "tgcfg") return aviso("Informe o usuário do seu bot em Canais > Telegram (ou o pedido é grande demais para link).", true);
     if (a === "c5") await marcar(id, {camada: 5, nota: "Chefe Geral pediu seu OK no chat"});
     if (a === "c6") await marcar(id, {camada: 6, nota: "Em execução nas ferramentas"});
     if (a === "ok") await marcar(id, {camada: 7, status: "concluido", nota: "Marcado como concluído"});

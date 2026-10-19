@@ -36,9 +36,17 @@ Para `tipo: "reuniao_resumo"`, `anexos` traz:
 {"reuniao_id": "r...", "titulo": "...", "regras": ["..."], "transcricao": "texto completo", "duracao_s": 1830}
 ```
 
+Para `tipo: "agenda_evento"` (só sai depois do seu toque), `confirmado_pelo_usuario: true` e `anexos.evento`:
+```json
+{"titulo": "...", "inicio": "2026-10-20T10:00:00-03:00", "fim": "...", "local": "...", "convidados": ["a@b.com"], "agenda": "google|m365", "detalhes": "..."}
+```
+Para `tipo: "teste"`: só confirmar o recebimento. Pedidos vindos do Telegram têm `origem: "chefe-geral-ponte-telegram"`, `pedido.canal: "telegram"` e, para voz, `anexos.arquivo_no_mac`, `mime`, `duracao_s` (o áudio não sai do Mac; transcrição em pausa).
+
 Resposta esperada: qualquer HTTP 2xx. Opcionalmente JSON `{"camada": 5, "status": "andamento", "resposta": "texto"}`; se vier `resposta`, o app mostra e marca o pedido como concluído.
 
 ## CORS
+O app usa a **Ponte do Mac** (`http://127.0.0.1:8788/pedido`), que repassa com o cabeçalho `Authorization` lido de `~/Library/Application Support/ChefeGeral/webhook.key`. A ponte devolve `{ok, webhook_status, resposta}`. O texto abaixo vale só para o modo direto.
+
 O app roda no navegador (GitHub Pages). O webhook precisa responder ao preflight `OPTIONS` com
 `Access-Control-Allow-Origin: https://guilh-abc.github.io` (ou `*`), `Access-Control-Allow-Headers: Authorization, Content-Type` e `Access-Control-Allow-Methods: POST`.
 Se não responder, o teste mostra "rede ou CORS bloqueado". Nesse caso o pedido fica salvo no app com erro e pode ser reenviado depois.

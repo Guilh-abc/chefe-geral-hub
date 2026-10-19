@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.chefegeral.ollama-origins</string>
+  <!-- No login: libera o app publicado e o dev local para falar com o Ollama (Motor 2). Reabra o Ollama depois do primeiro uso. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/launchctl</string><string>setenv</string><string>OLLAMA_ORIGINS</string>
+    <string>https://guilh-abc.github.io,http://localhost:*,http://127.0.0.1:*</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>

@@ -2,7 +2,7 @@
 // Caminho preferido: plugin Local REST API no Mac (https://127.0.0.1:27124). Sem ele, as notas ficam na fila do app.
 import {ler} from "../core/config.js";
 import {salvar, pagina, atualizar, agoraISO} from "../core/db.js";
-const PASTAS = {pedidos: "Pedidos", reunioes: "Reunioes", notas: "Notas de voz", decisoes: "Decisoes", inbox: "Inbox"};
+const PASTAS = {pedidos: "Pedidos", reunioes: "Reunioes", notas: "Notas de voz", tarefas: "Tarefas", agenda: "Agenda", mensagens: "Mensagens", decisoes: "Decisoes", inbox: "Inbox"};
 const slug = s => (s || "nota").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w\s-]/g, "").trim().slice(0, 50).replace(/\s+/g, " ") || "nota";
 const yaml = v => JSON.stringify(v ?? "");
 
@@ -47,6 +47,9 @@ export async function sincronizar() {
   let ok = 0;
   for (const n of fila) { try { await escrever(n); await atualizar("memoria", n.id, x => { x.status = "enviado"; x.erro = null; }); ok++; } catch (e) { await atualizar("memoria", n.id, x => x.erro = e.message); } }
   return {ok, total: fila.length};
+}
+export function uriAbrir(n) {
+  return `obsidian://open?vault=${encodeURIComponent(ler().obsidian.cofre)}&file=${encodeURIComponent(n.caminho.replace(/\.md$/, ""))}`;
 }
 export function uriNova(n) {
   const c = ler().obsidian;

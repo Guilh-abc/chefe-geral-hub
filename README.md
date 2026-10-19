@@ -2,22 +2,26 @@
 
 **Penso, falo, executo.** O app é a casa; os módulos são os cômodos; os canais (Telegram, microfone, Obsidian) se ligam à casa; os motores (Chefe Geral/Grok agora, IA aberta no Mac depois) fazem o trabalho.
 
-- Link (GitHub Pages): `https://guilh-abc.github.io/chefe-geral-hub/` (depois de publicado)
+- Link (GitHub Pages): **https://guilh-abc.github.io/chefe-geral-hub/** (a raiz `guilh-abc.github.io` dá 404, é normal)
 - 100% estático: HTML, CSS e JavaScript puro (ES modules), sem npm e sem servidor.
-- Chaves (webhook, Telegram, Obsidian) ficam **só no localStorage do aparelho**. Nada de segredo neste repositório.
+- Segredos nunca vão para o repositório. Na Ponte do Mac, a chave do webhook e o token do Telegram ficam em `~/Library/Application Support/ChefeGeral/` (chmod 600), digitados por você. No modo avançado e para o Obsidian, ficam só no localStorage do aparelho.
 - Regra de ouro: **nada vai para ninguém, nem grava na agenda, sem o seu toque em Enviar.**
 
-## O que funciona nesta versão (fase 1)
+## O que funciona nesta versão
 
 | Módulo | Estado | Como |
 |---|---|---|
-| Início | pronto | Campo grande com microfone (transcrição pt-BR do navegador) e botão Pedir. Escolha do motor por pedido. |
-| Pedidos | pronto | Cada pedido com as 7 camadas, lista paginada, arquivamento, reenviar, marcar camadas. |
-| Reuniões | pronto | Gravar (MediaRecorder) com transcrição ao vivo, ou subir áudio/transcrição. Regras editáveis. Rascunho no navegador, resumo pelo Chefe Geral ou pelo Motor 2. Revisão e envio só para o seu Telegram. |
-| Canais e motores | pronto | Webhook do Chefe Geral, Telegram (assistente BotFather + teste), Obsidian, Ollama. |
-| Agenda, Mensagens, Tarefas, Notas de voz, Segundo cérebro (tela) | próxima versão | Cartões já aparecem. Enquanto isso, peça pela tela inicial. |
+| Início | pronto | Campo grande com microfone (pt-BR do navegador), motor por pedido, indicador **Ponte do Mac: ligada/desligada**. |
+| Pedidos | pronto | 7 camadas, lista paginada, arquivamento, reenviar. Sem a ponte: fila + botão **Abrir no Telegram**. |
+| Reuniões | pronto | Gravar ou subir áudio/transcrição, regras editáveis, resumo (local, Chefe Geral ou Motor 2), revisão e envio só para o seu Telegram. |
+| Agenda | pronto | Monte o evento, confira e grave você mesmo (Google, Outlook, .ics) ou peça ao Chefe Geral gravar, depois do seu OK. |
+| Mensagens | pronto | Entrada: o que você mandou ao bot (pela ponte). Saída: mensagem para o seu chat, com portão de confirmação. |
+| Tarefas | pronto | Hoje, próximas, feitas; prazo e prioridade; "Pedir ao Chefe Geral". |
+| Notas de voz | pronto | Grava no aparelho (áudio não sai sozinho), transcrição ao vivo, vira pedido ou tarefa. |
+| Segundo cérebro | pronto | Estado do Obsidian, fila, sincronizar, trazer capturas do Telegram, busca (a mesma do `obsidian_context`). |
+| Canais e motores | pronto | Ponte do Mac, Telegram, Obsidian, Ollama. |
 
-A captura para o Obsidian já funciona por baixo: pedidos, transcrições e resumos enviados viram notas (fila no aparelho ou gravação direta pelo plugin).
+Transcrição de áudio no Mac (voz do Telegram, notas gravadas): **em pausa** até a escolha do motor (VoiceStudio ou SoundCraft). Gravações ficam no aparelho onde foram feitas.
 
 ### As 7 camadas de um pedido
 1 Captura · 2 Triagem · 3 Contexto (notas do Obsidian) · 4 Envio ao motor · 5 Plano e seu OK · 6 Execução · 7 Retorno.
@@ -34,17 +38,34 @@ Microfone: na primeira vez o navegador pede permissão. A transcrição ao vivo 
 
 ## Configurar (aba Canais)
 
-### 1. Motor 1: Chefe Geral (webhook)
-1. No Grok Bot, abra o painel da rotina **"Console Chefe Geral, pedidos do app"**.
-2. Copie a **URL do webhook** e a **chave**. O painel mostra o formato do cabeçalho.
-3. No app: Canais › Motor 1 › cole a URL; cabeçalho `Authorization` (padrão); no valor, cole exatamente como o painel mostra (por exemplo `Bearer xxxxx`, se for assim que aparece).
-4. Toque em **Testar motor**. Deve aparecer "Entregue ao Chefe Geral (HTTP 200)".
+### 1. Motor 1: Chefe Geral pela Ponte do Mac (padrão)
+O webhook da rotina não aceita chamadas direto do navegador (CORS). Por isso o app fala com a **Ponte do Mac** em `http://127.0.0.1:8788`, que guarda a chave e repassa.
 
-Se o teste falhar com "rede ou CORS", o webhook não aceita chamadas direto do navegador. Veja `docs/webhook-payload.md`.
+No Terminal do Mac (uma vez):
+```
+cd ~/Documents/ChefeGeral/chefe-geral-hub && git pull
+./scripts/install-relay.sh "URL_DO_WEBHOOK"   # instala a ponte e o OLLAMA_ORIGINS fixo
+./scripts/set-webhook-key.sh                   # cole a chave (não aparece na tela); testa e mostra o HTTP
+./scripts/set-telegram.sh                      # cole o token do BotFather e mande /start ao bot
+./scripts/relay-status.sh                      # estado, log e saúde
+curl -s http://127.0.0.1:8788/health
+```
+Use o **Chrome** no Mac (o Safari bloqueia `http://127.0.0.1` a partir de um site https). O Chrome pode pedir permissão para "acessar dispositivos da rede local": permita.
+Logs: `~/Library/Logs/ChefeGeral/relay.log` (sem chave e sem token). Remover: `./scripts/uninstall-relay.sh`.
+Modo direto (avançado, só se o webhook liberar CORS): Canais › Motor 1 › Avançado.
+
+### Pelo celular
+O celular não alcança o Mac. Dois caminhos:
+1. **Telegram (recomendado):** mande texto ou voz ao seu bot. A ponte do Mac pega (só do seu chat_id), repassa ao Chefe Geral e responde "Recebido. Camada 1 (captura) ok; camada 4: entregue...". O Telegram guarda as mensagens por até 24 h se o Mac estiver desligado.
+2. **App no celular:** o pedido fica na fila e o botão **Abrir no Telegram** abre o chat do bot com o pedido pronto; você toca em Enviar lá. Na reunião, o app compartilha o arquivo da transcrição com o Telegram.
+Quando o app do Mac vê a ponte ligada, reenvia a fila sozinho (sem duplicar).
+
+### Ponte na nuvem (opcional, não ativada)
+`cloud/` tem a versão Cloudflare Worker (Telegram em modo webhook, segredos por `wrangler secret put`). Veja `cloud/README.md`.
 
 ### 2. Telegram (único canal de mensagens, gratuito)
 1. No Telegram, fale com **@BotFather** › `/newbot` › escolha nome e usuário (terminando em `bot`).
-2. Copie o **token** e cole em Canais › Telegram.
+2. Copie o **token**. Com a ponte: rode `./scripts/set-telegram.sh` no Mac e cole lá. Para o app enviar direto ao seu chat (Reuniões, Mensagens), cole também em Canais › Telegram (fica só no aparelho).
 3. Abra o seu bot e mande `/start`.
 4. Toque em **Descobrir chat_id** (usa `getUpdates`), confira o número e toque em **Salvar**.
 5. Toque em **Enviar teste** e confirme. A mensagem chega no seu chat.
@@ -75,7 +96,8 @@ Contexto: antes de enviar um pedido, o app busca notas relacionadas (`/search/si
 IA aberta e gratuita. Responde aqui no app; não executa nas ferramentas.
 ```
 ollama pull llama3.2   (já instalado no seu Mac)
-launchctl setenv OLLAMA_ORIGINS "https://guilh-abc.github.io"
+# install-relay.sh já instala o LaunchAgent com.chefegeral.ollama-origins (roda no login):
+launchctl setenv OLLAMA_ORIGINS "https://guilh-abc.github.io,http://localhost:*,http://127.0.0.1:*"
 # feche e abra o app do Ollama
 ```
 No app: Canais › Motor 2 › **Testar motor**. Funciona no Chrome do Mac (o navegador pode pedir permissão para acessar a rede local).

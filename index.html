@@ -19,7 +19,7 @@
 <div class="app">
   <nav class="tabs" aria-label="Navegação"></nav>
   <main id="main">
-    <header class="top"><img src="./icons/icon-192.png" alt="" class="logo"><h1 id="titulo">Chefe Geral</h1><button class="voltar" data-ir="inicio" aria-label="Início">‹</button></header>
+    <header class="top"><img src="./icons/icon-192.png" alt="" class="logo"><h1 id="titulo">Chefe Geral</h1><button class="ponte" id="ponte" data-ir="canais" title="Ponte do Mac"><i></i><span>Ponte do Mac</span></button><button class="voltar" data-ir="inicio" aria-label="Início">‹</button></header>
     <section class="tela" id="tela-inicio">
       <form id="form-pedir" class="pedir" autocomplete="off">
         <label for="fala" class="lema">Penso, falo, executo.</label>
@@ -32,7 +32,7 @@
           <select id="motor" aria-label="Motor"><option value="grok">Motor 1: Chefe Geral</option><option value="ollama">Motor 2: Ollama (experimental)</option></select>
           <button class="primary" type="submit">Pedir</button>
         </div>
-        <p class="muted small">Vai para o Chefe Geral pela rotina de webhook. Ele executa nas suas ferramentas e pede o seu OK antes de mandar algo a alguém ou mexer na agenda.</p>
+        <p class="muted small" id="dica">Vai para o Chefe Geral pela ponte do Mac. Ele executa nas suas ferramentas e pede o seu OK antes de mandar algo a alguém ou mexer na agenda.</p>
       </form>
       <div id="recentes" class="recentes"></div>
       <h2 class="sec">Cômodos</h2>

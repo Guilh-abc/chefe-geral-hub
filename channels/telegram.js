@@ -38,3 +38,5 @@ export async function enviarDocumento(conteudo, arquivo, legenda) {
   return api("sendDocument", fd);
 }
 export const testar = () => enviarTexto("Teste do app Chefe Geral: o Telegram está funcionando.");
+
+// Entrada: quem lê o que você manda ao bot é a Ponte do Mac (relay/relay.py), para não disputar o getUpdates.

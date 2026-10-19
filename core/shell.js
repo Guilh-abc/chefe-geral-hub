@@ -24,16 +24,19 @@ export const MODULOS = [
     resumo: async () => ({fila: await contar("pedidos", p => !p.arquivado && (p.status === "fila" || p.status === "andamento")), erro: await contar("pedidos", p => !p.arquivado && p.status === "erro")})},
   {id: "reunioes", nome: "Reuniões", desc: "Grava, transcreve e gera o feedback de amigo. Você revisa e manda no seu Telegram.", canais: ["Microfone", "Telegram"], motor: true, pronto: true,
     resumo: async () => ({fila: await contar("reunioes", r => !r.arquivado && r.status !== "enviado"), erro: 0})},
-  {id: "agenda", nome: "Agenda", desc: "Google Calendar e Microsoft 365 pelo Chefe Geral, sempre com o seu OK.", canais: ["Google Calendar", "Microsoft 365"], pronto: false},
-  {id: "mensagens", nome: "Mensagens", desc: "Rascunhos e entradas do Telegram. Nada sai sem você tocar em Enviar.", canais: ["Telegram"], pronto: false},
-  {id: "tarefas", nome: "Tarefas", desc: "Lista do dia, prazos e o que o Chefe Geral está tocando.", canais: ["App", "Notion"], pronto: false},
-  {id: "notas", nome: "Notas de voz", desc: "Fale uma ideia e ela vira pedido, tarefa ou nota no Obsidian.", canais: ["Microfone", "Telegram"], pronto: false},
-  {id: "memoria", nome: "Segundo cérebro", desc: "Tudo vira nota no Obsidian, na pasta Chefe Geral, e volta como contexto.", canais: ["Obsidian"], pronto: false,
+  {id: "agenda", nome: "Agenda", desc: "Monte o evento e grave no Google ou Outlook com o seu toque, ou peça ao Chefe Geral.", canais: ["Google Calendar", "Microsoft 365"], pronto: true,
+    resumo: async () => ({fila: await contar("eventos", e => e.status !== "gravado"), erro: 0})},
+  {id: "mensagens", nome: "Mensagens", desc: "O que você manda ao seu bot e o que sai para o seu chat. Nada sai sem você tocar em Enviar.", canais: ["Telegram", "Ponte do Mac"], pronto: true},
+  {id: "tarefas", nome: "Tarefas", desc: "Lista do dia e prazos. Peça ajuda ao Chefe Geral em qualquer tarefa.", canais: ["App"], pronto: true,
+    resumo: async () => { const h = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10); return {fila: await contar("tarefas", t => !t.arquivado && t.status !== "feita" && (!t.prazo || t.prazo <= h)), erro: await contar("tarefas", t => t.status !== "feita" && t.prazo && t.prazo < h)}; }},
+  {id: "notas", nome: "Notas de voz", desc: "Fale uma ideia e ela vira pedido, tarefa ou nota no Obsidian. O áudio fica no aparelho.", canais: ["Microfone", "Telegram"], pronto: true,
+    resumo: async () => ({fila: await contar("notas", n => n.status === "nova"), erro: 0})},
+  {id: "memoria", nome: "Segundo cérebro", desc: "Tudo vira nota no Obsidian, na pasta Chefe Geral, e volta como contexto.", canais: ["Obsidian"], pronto: true,
     resumo: async () => ({fila: await contar("memoria", n => n.status === "fila"), erro: 0})},
   {id: "canais", nome: "Canais e motores", desc: "Webhook do Chefe Geral, Telegram, Obsidian e Motor 2 (Ollama).", canais: ["Ajustes"], pronto: true,
     resumo: async () => { const c = ler(); const falta = [!c.grok.url && "webhook", !c.telegram.chat_id && "Telegram", !c.obsidian.chave && "Obsidian"].filter(Boolean); return {texto: falta.length ? "Falta: " + falta.join(", ") : "Tudo configurado", alerta: falta.length > 0}; }},
 ];
-const NAV = ["inicio", "pedidos", "reunioes", "canais"];
+const NAV = ["inicio", "pedidos", "reunioes", "tarefas", "canais"];
 
 async function cartoes() {
   const el = $("#cartoes");
@@ -74,8 +77,30 @@ async function pedir(e) {
   aviso("Pedido na fila. Enviando ao " + (motor === "ollama" ? "Motor 2" : "Chefe Geral") + "...");
   recentes();
   const r = await enviarAoMotor(p);
-  aviso(r.status === "erro" ? "Não foi: " + r.historico.at(-1).nota : r.status === "concluido" ? "Motor 2 respondeu. Veja em Pedidos." : "Entregue ao Chefe Geral. A resposta chega no chat ou no Telegram.", r.status === "erro");
+  const espera = r.entrega?.estado === "aguardando_ponte";
+  aviso(r.status === "erro" ? "Não foi: " + r.historico.at(-1).nota : espera ? "Mac fora de alcance: pedido na fila. Em Pedidos dá para mandar pelo Telegram." : r.status === "concluido" ? "Motor 2 respondeu. Veja em Pedidos." : "Entregue ao Chefe Geral. A resposta chega no chat ou no Telegram.", r.status === "erro");
+  verPonte();
   recentes(); cartoes();
+}
+
+// Ponte do Mac: indicador e reenvio automático da fila quando ela liga.
+let ponteAntes = null;
+async function verPonte() {
+  const c = ler().grok, b = $("#ponte");
+  if (c.modo !== "ponte") { b.hidden = true; return; }
+  const {saude} = await import("../engines/grok-webhook.js");
+  const s = await saude();
+  b.hidden = false; b.className = "ponte " + (s.ligada ? "on" : "off");
+  b.querySelector("span").textContent = "Ponte do Mac: " + (s.ligada ? "ligada" : "desligada");
+  $("#dica").textContent = s.ligada
+    ? "Vai para o Chefe Geral pela ponte do Mac. Ele executa nas suas ferramentas e pede o seu OK antes de mandar algo a alguém ou mexer na agenda."
+    : "Ponte do Mac desligada (no celular é normal). O pedido fica na fila e vai sozinho quando o Mac estiver ligado. Para ir já, use \"Abrir no Telegram\" em Pedidos.";
+  if (s.ligada && ponteAntes !== true) {
+    const {reenviarFila} = await import("./pipeline.js");
+    const n = await reenviarFila();
+    if (n) { aviso(n + " pedido(s) da fila entregue(s) ao Chefe Geral"); recentes(); }
+  }
+  ponteAntes = s.ligada;
 }
 
 // Roteador por hash. Módulos são import() só quando abertos.
@@ -92,7 +117,7 @@ async function rota() {
   const el = $("#tela-mod");
   if (!m.pronto) { el.innerHTML = `<div class="card"><p><b>${m.nome}</b> chega na próxima versão.</p><p class="muted">${m.desc}</p><p class="muted small">Enquanto isso, peça pela tela inicial: o Chefe Geral já faz isso pelas suas ferramentas.</p></div>`; return; }
   el.innerHTML = `<p class="muted carregando">Abrindo...</p>`;
-  try { const mod = await import(`../modules/${id}.js`); el.innerHTML = ""; await mod.default(el); }
+  try { const mod = await import(`../modules/${id}.js`); const box = document.createElement("div"); box.className = "modulo"; el.replaceChildren(box); await mod.default(box); }
   catch (e) { el.innerHTML = `<div class="card err-box">Não abriu o módulo: ${esc(e.message)}</div>`; }
 }
 
@@ -103,4 +128,6 @@ $("#fala").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKe
 $(".tabs").innerHTML = NAV.map(id => `<button data-ir="${id}">${ico(id === "inicio" ? "casa" : id)}<span>${id === "inicio" ? "Início" : MODULOS.find(m => m.id === id).nome.split(" ")[0]}</span></button>`).join("");
 addEventListener("hashchange", rota);
 rota();
+verPonte(); setInterval(verPonte, 20000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) verPonte(); });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
