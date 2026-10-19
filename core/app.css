@@ -122,3 +122,7 @@ a.tg{display:inline-block;text-decoration:none;font-size:12.5px;padding:6px 11px
 .row{display:flex;gap:8px;align-items:center}
 #abas .ativo{background:var(--acc,#2b6);color:#fff}
 .md h2,.md h3,.md h4{margin:10px 0 4px}.md pre{white-space:pre-wrap;background:var(--c2);padding:8px;border-radius:8px}.md code{background:var(--c2);padding:0 4px;border-radius:4px}
+.ponte.cel i{background:var(--ok)}.ponte.cel span{color:#86efac}
+.cel-card{border-color:#229ED9;background:linear-gradient(180deg,rgba(34,158,217,.14),var(--c))}
+.cel-card h3{margin-top:0}
+details.mac-avancado>summary{cursor:pointer;padding:10px 2px;color:var(--m);font-size:13px}

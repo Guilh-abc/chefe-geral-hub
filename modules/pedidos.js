@@ -4,13 +4,15 @@ import {pagina, pegar, atualizar, arquivarAntigos} from "../core/db.js";
 import {CAMADAS, marcar, enviarAoMotor} from "../core/pipeline.js";
 
 import {linkTelegram} from "../engines/grok-webhook.js";
+import {emCelular, abrirBot, linkBot, BOT, cartaoBot} from "../core/aparelho.js";
+import {agoraISO} from "../core/db.js";
 const TG = p => linkTelegram(p, p.extra || {});
 const FILTROS = {abertos: ["Abertos", p => p.status === "fila" || p.status === "andamento"], erro: ["Com erro", p => p.status === "erro"],
   concluido: ["Concluídos", p => p.status === "concluido"], todos: ["Todos", null]};
 
 export default async function abrir(el) {
   let filtro = "abertos", ultimo = null;
-  el.innerHTML = `<div class="chips" id="pf"></div><div id="pl"></div><button class="ghost mais" id="pm" hidden>Carregar mais</button>
+  el.innerHTML = (emCelular() ? cartaoBot("No celular, os pedidos vão pelo Telegram", `Faça o pedido na tela inicial: o app abre o @${BOT()} com o texto pronto e você toca em Enviar. A lista abaixo é o registro deste aparelho; a resposta chega no bot e fica no Obsidian.`) : "") + `<div class="chips" id="pf"></div><div id="pl"></div><button class="ghost mais" id="pm" hidden>Carregar mais</button>
     <div class="row-btn"><button class="ghost" id="parq">Arquivar concluídos há mais de 30 dias</button></div>
     <h2 class="sec">Atalhos por vertente</h2><div id="pv" class="muted small">Carregando...</div>`;
   const chips = () => $("#pf", el).innerHTML = Object.entries(FILTROS).map(([k, [n]]) => `<button class="chip ${k === filtro ? "on" : ""}" data-f="${k}">${n}</button>`).join("");
@@ -22,8 +24,10 @@ export default async function abrir(el) {
       <div class="camada-n">Camada ${n} de 7: ${CAMADAS[n - 1]}${p.historico?.at(-1)?.nota ? " · " + esc(p.historico.at(-1).nota) : ""}</div>
       ${p.resposta ? `<div class="resposta">${esc(p.resposta)}</div>` : ""}
       ${p.entrega?.estado === "aguardando_ponte" && p.status === "fila" ? `<div class="nota-ponte">Esperando o Mac. Vai sozinho quando a ponte ligar.</div>` : ""}
+      ${p.entrega?.estado === "telegram" && p.status === "andamento" ? `<div class="small muted" style="margin-top:6px">Foi pelo @${BOT()}. A resposta chega no Telegram e no Obsidian.</div>` : ""}
       <div class="acoes">
-        ${p.status === "erro" || p.status === "fila" ? `<button data-a="enviar">Enviar de novo</button>` : ""}
+        ${p.status === "erro" || p.status === "fila" ? `<button data-a="enviar">${emCelular() ? "Enviar pelo Telegram" : "Enviar de novo"}</button>` : ""}
+        ${p.entrega?.estado === "telegram" && p.status === "andamento" && TG(p) ? `<a class="tg" href="${esc(TG(p))}" target="_blank" rel="noopener">Abrir no Telegram de novo</a>` : ""}
         ${p.status === "fila" && p.entrega?.estado === "aguardando_ponte" ? (TG(p) ? `<a class="tg" href="${esc(TG(p))}" target="_blank" rel="noopener">Abrir no Telegram</a>` : `<button data-a="tgcfg">Abrir no Telegram</button>`) : ""}
         ${p.status === "andamento" ? `<button data-a="c5">Ele pediu meu OK</button><button data-a="c6">Executando</button>` : ""}
         ${p.status !== "concluido" && p.status !== "cancelado" ? `<button data-a="ok">Concluído</button><button data-a="cancelar">Cancelar</button>` : `<button data-a="arquivar">Arquivar</button>`}
@@ -46,6 +50,16 @@ export default async function abrir(el) {
     if (b.dataset.atalho) { location.hash = ""; setTimeout(() => { const t = document.querySelector("#fala"); t.value = b.dataset.atalho + ": "; t.focus(); }, 50); return; }
     const id = b.closest("[data-id]")?.dataset.id; if (!id) return;
     const a = b.dataset.a;
+    if (a === "enviar" && emCelular()) {
+      // Abre o bot no mesmo toque (o texto do pedido está na tela), depois marca o registro local.
+      const t = b.closest(".item").querySelector(".item-t").firstChild.textContent.trim();
+      if (!linkBot(t)) navigator.clipboard?.writeText(t).catch(() => {});
+      abrirBot(t);
+      await atualizar("pedidos", id, x => { x.entrega = {estado: "telegram", em: agoraISO()}; });
+      await marcar(id, {camada: 4, status: "andamento", nota: "Aberto no @" + BOT() + " com o texto pronto. Toque em Enviar no Telegram."});
+      aviso(linkBot(t) ? "Abrindo o Telegram: toque em Enviar lá." : "Texto longo: copiei. Cole no chat do bot e envie.");
+      return carregar(true);
+    }
     if (a === "enviar") { const p = await pegar("pedidos", id); aviso("Enviando..."); const r = await enviarAoMotor(p); aviso(r.status === "erro" ? r.historico.at(-1).nota : "Enviado", r.status === "erro"); }
     if (a === "tgcfg") return aviso("Informe o usuário do seu bot em Canais > Telegram (ou o pedido é grande demais para link).", true);
     if (a === "c5") await marcar(id, {camada: 5, nota: "Chefe Geral pediu seu OK no chat"});

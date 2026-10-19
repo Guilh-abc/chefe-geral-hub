@@ -2,7 +2,9 @@
 import {$, $$, esc, aviso, quando} from "./ui.js";
 import {ler} from "./config.js";
 import {contar, pagina} from "./db.js";
-import {CAMADAS, novoPedido, enviarAoMotor} from "./pipeline.js";
+import {CAMADAS, novoPedido, enviarAoMotor, marcar} from "./pipeline.js";
+import {emCelular, definirPonte, abrirBot, linkBot, BOT} from "./aparelho.js";
+import {atualizar, agoraISO} from "./db.js";
 
 const I = {
   pedidos: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
@@ -68,8 +70,23 @@ async function microfone() {
   b.classList.add("on");
   try { await gravador.iniciar(); } catch (e) { gravador = null; b.classList.remove("on"); aviso("Microfone bloqueado: " + e.message, true); }
 }
+// No celular: abre o @Chefegui_bot com o texto pronto (no mesmo toque) e guarda o registro aqui no aparelho.
+async function pedirCelular(texto) {
+  const cabe = !!linkBot(texto);
+  if (!cabe) navigator.clipboard?.writeText(texto).catch(() => {});
+  abrirBot(texto);
+  if (gravador) { const g = gravador; gravador = null; $("#mic").classList.remove("on"); g.parar().catch(() => {}); }
+  const p = await novoPedido({texto, canal: "celular", motor: "grok"});
+  $("#fala").value = ""; $("#parcial").textContent = "";
+  import("../memory/obsidian.js").then(m => m.capturar({modulo: "pedidos", titulo: texto.slice(0, 60), corpo: texto, id: p.id})).catch(() => {});
+  await atualizar("pedidos", p.id, x => { x.entrega = {estado: "telegram", em: agoraISO()}; });
+  await marcar(p.id, {camada: 4, status: "andamento", nota: "Aberto no @" + BOT() + " com o texto pronto. Toque em Enviar no Telegram: a resposta volta lá e vai para o Obsidian."});
+  aviso(cabe ? "Abrindo o Telegram: toque em Enviar lá." : "Texto longo: copiei. Cole no chat do bot e envie.");
+  recentes(); cartoes();
+}
 async function pedir(e) {
   e.preventDefault();
+  if ($("#motor").value === "grok" && emCelular()) { const t = $("#fala").value.trim(); if (!t) return $("#fala").focus(); return pedirCelular(t); }
   if (gravador) await microfone();
   const texto = $("#fala").value.trim(); if (!texto) return $("#fala").focus();
   const motor = $("#motor").value;
@@ -92,7 +109,10 @@ async function verPonte() {
   if (c.modo !== "ponte") { b.hidden = true; return; }
   const {saude} = await import("../engines/grok-webhook.js");
   const s = await saude();
-  b.hidden = false; b.className = "ponte " + (s.ligada ? "on" : "off");
+  definirPonte(s.ligada);
+  if (pintarCelular()) { ponteAntes = false; return; }
+  $("#form-pedir .primary").textContent = "Pedir";
+  b.hidden = false; b.className = "ponte " + (s.ligada ? "on" : "off"); b.title = "Ponte do Mac";
   b.querySelector("span").textContent = "Ponte do Mac: " + (s.ligada ? "ligada" : "desligada");
   $("#dica").textContent = s.ligada
     ? "Vai para o Chefe Geral pela ponte do Mac. Ele executa nas suas ferramentas e pede o seu OK antes de mandar algo a alguém ou mexer na agenda."
@@ -104,6 +124,17 @@ async function verPonte() {
     import("../memory/obsidian.js").then(m => m.sincronizar()).catch(() => {});
   }
   ponteAntes = s.ligada;
+}
+
+// Celular: selo do topo e dica da tela inicial mostram o caminho pelo Telegram (não é "desligada").
+function pintarCelular() {
+  if (!emCelular()) return false;
+  const b = $("#ponte");
+  b.hidden = false; b.className = "ponte cel"; b.title = "No celular os pedidos vão pelo @" + BOT();
+  b.querySelector("span").textContent = "Celular: pelo Telegram";
+  $("#form-pedir .primary").textContent = "Pedir pelo Telegram";
+  $("#dica").textContent = "No celular, o pedido abre no @" + BOT() + " com o texto pronto. Toque em Enviar no Telegram: a ponte do Mac pega, a resposta volta lá e fica no Obsidian. Para áudio, mande a nota de voz direto no bot.";
+  return true;
 }
 
 // Roteador por hash. Módulos são import() só quando abertos.
@@ -131,6 +162,7 @@ $("#fala").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKe
 $(".tabs").innerHTML = NAV.map(id => `<button data-ir="${id}">${ico(id === "inicio" ? "casa" : id)}<span>${id === "inicio" ? "Início" : MODULOS.find(m => m.id === id).nome.split(" ")[0]}</span></button>`).join("");
 addEventListener("hashchange", rota);
 rota();
+if (ler().grok.modo === "ponte") pintarCelular();
 verPonte(); setInterval(verPonte, 20000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) verPonte(); });
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});

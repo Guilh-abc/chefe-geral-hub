@@ -2,6 +2,7 @@
 import {$, esc, aviso} from "../core/ui.js";
 import {ler, gravar} from "../core/config.js";
 import {exportarTudo} from "../core/db.js";
+import {emCelular, BOT} from "../core/aparelho.js";
 
 // Reabre num contêiner novo para não acumular ouvintes de evento.
 function reabrir(el) { const n = document.createElement("div"); n.className = el.className; el.replaceWith(n); abrir(n); }
@@ -60,13 +61,28 @@ export default async function abrir(el) {
     <label class="check"><input type="checkbox" id="obc" ${c.obsidian.captura ? "checked" : ""}> Captura contínua (pedidos, notas e reuniões viram notas)</label>
     <div class="row-btn"><button class="primary">Salvar</button><button type="button" class="ghost" data-t="obsidian">Testar</button><button type="button" class="ghost" id="obs">Sincronizar fila</button></div></form>
 
-  <div class="card"><h3>Dados deste aparelho</h3><p class="muted small">Pedidos, reuniões e a fila de notas ficam no IndexedDB do navegador. Ajustes e chaves, no localStorage. Nada vai para o GitHub.</p>
+  <div class="card" id="fdados"><h3>Dados deste aparelho</h3><p class="muted small">Pedidos, reuniões e a fila de notas ficam no IndexedDB do navegador. Ajustes e chaves, no localStorage. Nada vai para o GitHub.</p>
     <div class="row-btn"><button class="ghost" id="dexp">Exportar dados (.json, sem chaves)</button><button class="ghost" id="dlimpa">Apagar chaves deste aparelho</button></div></div>`;
 
+  // Celular: o caminho é o bot do Telegram. Os passos de Terminal do Mac ficam recolhidos.
+  if (emCelular()) {
+    const bot = BOT();
+    const det = document.createElement("details"); det.className = "mac-avancado";
+    det.innerHTML = `<summary>Ajustes do Mac (Terminal, motores e ponte). Só servem no Mac.</summary>`;
+    [...el.children].filter(x => x.id !== "fdados").forEach(x => det.append(x));
+    el.prepend(det);
+    el.insertAdjacentHTML("afterbegin", `<div class="card cel-card" id="fcel"><h3>No celular você usa o Telegram</h3>
+      <p class="small">Aqui no celular a ponte do Mac não aparece, e isso é normal. O seu canal é o bot <b>@${bot}</b>: o Mac lê o que você manda, o Chefe Geral responde no próprio bot e a resposta fica no Obsidian, em <b>Chefe Geral/Respostas</b>.</p>
+      <div class="row-btn"><a class="tg" href="https://t.me/${bot}" target="_blank" rel="noopener">Abrir @${bot}</a></div>
+      <div class="passo"><b>1</b><div>Escreva o pedido no bot, ou use Pedir na tela inicial: o app abre o bot com o texto pronto e você toca em Enviar.</div></div>
+      <div class="passo"><b>2</b><div>Para áudio, segure o microfone no próprio bot e mande a nota de voz. O Mac transcreve.</div></div>
+      <div class="passo"><b>3</b><div>Reunião: mande o áudio no bot com a legenda <code>/reuniao</code> e o resumo volta lá.</div></div>
+      <p class="muted small">Se o Mac estiver desligado, o bot guarda as mensagens e a ponte pega tudo quando ele ligar.</p></div>`);
+  }
   const salvo = () => aviso("Salvo neste aparelho");
   el.addEventListener("change", e => { if (e.target.name === "motor") { gravar({motor: e.target.value}); salvo(); } });
   $("#fg", el).onsubmit = e => { e.preventDefault(); gravar({grok: {modo: $("#gdir", el).checked ? "direto" : "ponte", ponte: $("#gp", el).value.trim() || "http://127.0.0.1:8788", url: $("#gu", el).value.trim(), header: $("#gh", el).value.trim() || "Authorization", ...($("#gk", el).value ? {chave: $("#gk", el).value.trim()} : {}), ...($("#gpt", el).value ? {ponte_token: $("#gpt", el).value.trim()} : {})}}); salvo(); reabrir(el); };
-  import("../engines/grok-webhook.js").then(m => m.saude()).then(s => { const p = $("#pst", el); if (!p) return; p.className = "pill " + (s.ligada && s.chave_presente ? "ok" : "no"); p.textContent = c.grok.modo !== "ponte" ? "modo direto" : s.ligada ? (s.chave_presente ? "ponte ligada" : "ponte sem chave") : "ponte desligada"; });
+  import("../engines/grok-webhook.js").then(m => m.saude()).then(s => { const p = $("#pst", el); if (!p) return; p.className = "pill " + (s.ligada && s.chave_presente ? "ok" : "no"); p.textContent = c.grok.modo !== "ponte" ? "modo direto" : s.ligada ? (s.chave_presente ? "ponte ligada" : "ponte sem chave") : emCelular() ? "no celular: pelo Telegram" : "ponte desligada"; if (!s.ligada && emCelular()) p.className = "pill ok"; });
   $("#fo", el).onsubmit = e => { e.preventDefault(); gravar({ollama: {url: $("#ou", el).value.trim(), modelo: $("#om", el).value.trim()}}); salvo(); };
   $("#ft", el).onsubmit = e => { e.preventDefault(); gravar({telegram: {chat_id: $("#tc", el).value.trim(), bot: $("#tb", el).value.trim().replace(/^@/, ""), ...($("#tk", el).value ? {token: $("#tk", el).value.trim()} : {})}}); salvo(); reabrir(el); };
   $("#fob", el).onsubmit = e => { e.preventDefault(); gravar({obsidian: {via: $("#obrest", el).checked ? "rest" : "ponte", url: $("#obu", el).value.trim(), cofre: $("#obv", el).value.trim(), captura: $("#obc", el).checked, ...($("#obk", el).value ? {chave: $("#obk", el).value.trim()} : {})}}); salvo(); reabrir(el); };

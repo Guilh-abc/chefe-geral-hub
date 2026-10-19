@@ -4,11 +4,12 @@ import {$, esc, quando, aviso} from "../core/ui.js";
 import {salvar, pagina, pegar, atualizar, apagar, agoraISO} from "../core/db.js";
 import {ler} from "../core/config.js";
 import {criarGravador, temTranscricao, temGravacao} from "../core/voz.js";
+import {emCelular, abrirBot, linkBot, BOT, cartaoBot} from "../core/aparelho.js";
 
 export default async function abrir(el) {
   let grav = null, ultimo = null, inicio = 0, relogio = null;
   const emCurso = new Set();
-  el.innerHTML = `<div class="card grava">
+  el.innerHTML = (emCelular() ? cartaoBot("No celular, mande a nota de voz no bot", `Para áudio, o melhor caminho é segurar o microfone no próprio <b>@${BOT()}</b> e mandar: o Mac transcreve, o Chefe Geral responde lá e tudo fica no Obsidian. Se gravar aqui, o áudio fica neste aparelho e você pode compartilhar no Telegram.`) : "") + `<div class="card grava">
       <button class="mic" id="ng" aria-label="Gravar nota"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg></button>
       <b id="nst">Toque e fale uma ideia</b><div class="tempo" id="nt" hidden>00:00</div>
       <div class="transc" id="nx" hidden></div>
@@ -16,19 +17,21 @@ export default async function abrir(el) {
     <h2 class="sec">Notas</h2><div id="nl"></div><button class="ghost mais" id="nm" hidden>Carregar mais</button>`;
   const ESTADO = {
     transcrevendo: () => `<div class="small" style="color:var(--and)">Transcrevendo no Mac…</div>`,
-    erro: n => `<div class="small" style="color:var(--err)">${esc(n.transc_erro || "Não consegui transcrever.")}</div>`
+    erro: n => `<div class="small" style="color:var(--err)">${esc(n.transc_erro || "Não consegui transcrever.")}</div>`,
+    celular: () => `<div class="small" style="color:#7dd3fc">No celular a transcrição é feita no Mac pelo Telegram. Toque em Mandar ao bot para compartilhar este áudio com o @${BOT()}, ou grave de novo direto no bot.</div>`
   };
   const item = n => {
     // Uma transcrição que ficou "transcrevendo" de uma visita anterior foi interrompida: mostra como erro.
     const st = n.transc_estado === "transcrevendo" && !emCurso.has(n.id) ? "erro" : n.transc_estado;
     if (st === "erro" && n.transc_estado === "transcrevendo") n = {...n, transc_erro: "A transcrição foi interrompida. Toque em Tentar de novo."};
     const corpo = n.texto ? esc(n.texto) : st === "transcrevendo" ? "" : `<span class="muted">(sem transcrição)</span>`;
-    const tentar = n.audio && st !== "transcrevendo";
+    const cel = emCelular();
+    const tentar = n.audio && st !== "transcrevendo" && !cel;
     return `<div class="item" data-id="${n.id}"><div class="item-h"><span class="st ${n.status === "tratada" ? "concluido" : "fila"}"></span><div class="item-t">${corpo}
     ${ESTADO[st] ? ESTADO[st](n) : ""}
     <div class="item-m">${quando(n.criado_em)}${n.duracao_s ? " · " + n.duracao_s + " s" : ""}${n.origem ? " · " + esc(n.origem) : ""}${n.fonte_texto === "voicestudio" ? " · transcrito no Mac" : ""}${n.destino ? " · " + esc(n.destino) : ""}</div></div></div>
     <div class="acoes">${n.audio ? `<button data-a="ouvir">Ouvir</button>` : ""}${n.texto ? `<button data-a="pedido">Virar pedido</button><button data-a="tarefa">Virar tarefa</button>` : ""}
-      <button data-a="editar">Editar texto</button>${tentar ? `<button data-a="mac">${st === "erro" ? "Tentar de novo" : "Transcrever no Mac"}</button>` : ""}${st === "erro" && n.ponte_off && navigator.canShare ? `<button data-a="compartilhar">Mandar ao bot</button>` : ""}<button data-a="apagar">Apagar</button></div></div>`;
+      <button data-a="editar">Editar texto</button>${tentar ? `<button data-a="mac">${st === "erro" ? "Tentar de novo" : "Transcrever no Mac"}</button>` : ""}${n.audio && !n.texto && (cel || (st === "erro" && n.ponte_off)) && navigator.canShare ? `<button data-a="compartilhar">Mandar ao bot</button>` : ""}${cel && n.audio && !n.texto ? `<a class="tg" href="https://t.me/${BOT()}" target="_blank" rel="noopener">Abrir @${BOT()}</a>` : ""}<button data-a="apagar">Apagar</button></div></div>`;
   };
   // Redesenha só a nota na tela (sem recarregar a lista).
   async function redesenhar(id) {
@@ -88,7 +91,11 @@ export default async function abrir(el) {
       $("#nst", el).textContent = "Toque e fale uma ideia"; $("#nt", el).hidden = true; $("#nx", el).hidden = true;
       await carregar(true);
       // Sem transcrição ao vivo: manda o áudio para o Mac na hora, e a nota mostra o andamento.
-      if (!texto && audio) transcrever(id);
+      if (!texto && audio) {
+        // No celular a ponte não existe: orienta a mandar o áudio pelo bot em vez de tentar o Mac.
+        if (emCelular()) { await atualizar("notas", id, x => { x.transc_estado = "celular"; }); return redesenhar(id); }
+        transcrever(id);
+      }
       return;
     }
     grav = criarGravador({aoTexto: t => { $("#nx", el).hidden = false; $("#nx", el).textContent = t; }, aoErro: e => aviso(e, true)});
@@ -101,6 +108,19 @@ export default async function abrir(el) {
     if (b.id === "ng") return alternar();
     if (b.id === "nm") return carregar(false);
     const id = b.closest("[data-id]")?.dataset.id; if (!id) return;
+    if (b.dataset.a === "pedido" && emCelular()) {
+      // Abre o bot no mesmo toque com o texto da nota; o registro fica aqui no aparelho.
+      const t = b.closest(".item").querySelector(".item-t").firstChild.textContent.trim();
+      if (!linkBot(t)) navigator.clipboard?.writeText(t).catch(() => {});
+      abrirBot(t);
+      const {novoPedido, marcar} = await import("../core/pipeline.js");
+      const p = await novoPedido({texto: t, canal: "celular", modulo: "notas", motor: "grok"});
+      await atualizar("pedidos", p.id, x => { x.entrega = {estado: "telegram", em: agoraISO()}; });
+      await marcar(p.id, {camada: 4, status: "andamento", nota: "Aberto no @" + BOT() + " com o texto pronto. Toque em Enviar no Telegram."});
+      await atualizar("notas", id, x => { x.status = "tratada"; x.destino = "foi pelo Telegram"; });
+      aviso(linkBot(t) ? "Abrindo o Telegram: toque em Enviar lá." : "Texto longo: copiei. Cole no chat do bot e envie.");
+      return carregar(true);
+    }
     const n = await pegar("notas", id), a = b.dataset.a;
     if (a === "ouvir") { const bl = await pegar("blobs", n.audio); if (!bl) return aviso("Áudio não está neste aparelho", true); const au = new Audio(URL.createObjectURL(bl.blob)); au.play(); return; }
     if (a === "editar") { const t = prompt("Texto da nota", n.texto || ""); if (t === null) return; await atualizar("notas", id, x => { x.texto = t.trim(); if (x.texto) { x.transc_estado = "ok"; x.transc_erro = null; } }); return redesenhar(id); }

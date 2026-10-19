@@ -64,9 +64,10 @@ export async function testar() {
 }
 // Caminho do celular: abre o chat do seu bot com o pedido pronto; você toca em Enviar no Telegram e a ponte do Mac pega.
 export function linkTelegram(p, extra = {}) {
-  const bot = (ler().telegram.bot || "").replace(/^@/, "");
-  if (!bot) return null;
+  const bot = (ler().telegram.bot || "Chefegui_bot").replace(/^@/, "");
   const reuniao = extra.tipo === "reuniao_resumo";
+  // Pedido comum: o texto puro, como se você digitasse no bot.
+  if (!reuniao) return p.texto.length > 3500 ? null : `https://t.me/${bot}?text=${encodeURIComponent(p.texto)}`;
   const j = {id: p.id, tipo: extra.tipo || "pedido", texto: p.texto, modulo: p.modulo};
   if (reuniao) Object.assign(j, {titulo: extra.anexos?.titulo, regras: extra.anexos?.regras, transcricao: extra.anexos?.transcricao});
   const txt = (reuniao ? "#reuniao " : "#pedido ") + JSON.stringify(j);

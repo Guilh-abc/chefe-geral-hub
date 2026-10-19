@@ -2,6 +2,7 @@
 import {$, $$, esc, aviso, quando} from "../core/ui.js";
 import {ler} from "../core/config.js";
 import {pagina, pegar} from "../core/db.js";
+import {emCelular, BOT} from "../core/aparelho.js";
 
 const ABAS = [["recentes", "Recentes"], ["documentos", "Documentos"], ["mensagens", "Mensagens"], ["transcricoes", "Transcrições"], ["obsidian", "Obsidian"], ["busca", "Busca"]];
 const base = () => (ler().grok.ponte || "http://127.0.0.1:8788").replace(/\/$/, "");
@@ -41,6 +42,7 @@ export default async function abrir(el) {
   try { info = await json("/arquivos/raizes"); ligada = true; } catch (e) { ligada = false; info = {erro: e.code === "PONTE_OFF" ? null : e.message}; }
   $("#aest", el).innerHTML = ligada
     ? `Ponte do Mac ligada. Pastas liberadas (só leitura): ${info.raizes.map(r => `<b>${esc(r.nome)}</b>`).join(", ")}. Segredos e a pasta nrf9151-ntn nunca aparecem.`
+    : emCelular() ? `<b>No celular, aqui aparece só o que está neste aparelho</b>: pedidos, notas de voz e reuniões feitos por aqui. Os documentos, transcrições e notas do Obsidian aparecem no Mac (abra este app no Chrome do Mac), e as respostas do Chefe Geral ficam no <a class="tg" href="https://t.me/${BOT()}" target="_blank" rel="noopener">@${BOT()}</a> e no Obsidian, em Chefe Geral/Respostas.`
     : `<b>Ponte do Mac fora de alcance.</b> ${info.erro ? esc(info.erro) + ". " : ""}No celular ou fora do Mac é normal: aqui aparece só o que está guardado neste aparelho (pedidos, notas de voz e reuniões). No Mac, abra no Chrome, permita o acesso à rede local e confira a ponte em Canais.`;
 
   const caminhoBox = it => `<div class="small muted" style="word-break:break-all;margin-top:6px">📁 ${esc(it.absoluto)}</div>
@@ -83,7 +85,7 @@ export default async function abrir(el) {
     try {
       if (!ligada) {
         cont.innerHTML = aba === "documentos" || aba === "obsidian" || aba === "busca"
-          ? `<div class="vazio">Esta aba precisa da ponte do Mac. Abra o app no Chrome do Mac.</div>` + await local(aba)
+          ? `<div class="vazio">${emCelular() ? "Esta aba mostra os arquivos do Mac, então só aparece no Chrome do Mac. No celular, as respostas e documentos que o Chefe Geral manda chegam no @" + BOT() + "." : "Esta aba precisa da ponte do Mac. Abra o app no Chrome do Mac."}</div>` + await local(aba)
           : await local(aba);
         return;
       }

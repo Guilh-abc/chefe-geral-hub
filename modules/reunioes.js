@@ -4,6 +4,8 @@ import {salvar, pagina, atualizar, pegar, agoraISO} from "../core/db.js";
 import {ler, gravar} from "../core/config.js";
 import {confirmar} from "../core/gate.js";
 import {criarGravador, temTranscricao, temGravacao} from "../core/voz.js";
+import {emCelular, abrirLink, linkBot, BOT, cartaoBot} from "../core/aparelho.js";
+import {linkTelegram} from "../engines/grok-webhook.js";
 
 const ETAPAS = ["Gravar", "Transcrição", "Resumo", "Revisar e enviar"];
 export default async function abrir(el) {
@@ -18,13 +20,14 @@ export default async function abrir(el) {
     const {st, msg} = estadoT(x);
     if (st === "transcrevendo") return `<span style="color:var(--and)">Transcrevendo no Mac…</span>${x.duracao_s > 300 ? " <span class='muted'>Reunião longa: pode levar alguns minutos.</span>" : ""}`;
     if (st === "erro") return `<span style="color:var(--err)">${esc(msg)}</span>`;
+    if (st === "celular") return `<span style="color:#7dd3fc">No celular a transcrição é feita no Mac pelo Telegram. Toque em Mandar áudio ao bot (vai com a legenda /reuniao) ou cole a transcrição acima.</span>`;
     return "";
   };
   const etapas = n => `<div class="etapas">${ETAPAS.map((e, i) => `<span class="${i === n ? "on" : ""}">${i + 1}. ${e}</span>`).join("")}</div>`;
 
   async function lista() {
     const rs = await pagina("reunioes", {limite: 10});
-    el.innerHTML = etapas(0) + `<div class="card grava">
+    el.innerHTML = etapas(0) + (emCelular() ? cartaoBot("No celular, a reunião vai pelo Telegram", `Mande o áudio da reunião no <b>@${BOT()}</b> com a legenda <code>/reuniao</code> (anexe o arquivo de áudio e escreva /reuniao na legenda). O Mac transcreve, o resumo de amigo volta no bot e tudo fica no Obsidian. Se gravar aqui, o áudio fica neste aparelho e você manda ao bot depois.`) : "") + `<div class="card grava">
       <button class="mic" id="rg" aria-label="Gravar"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg></button>
       <b>Quero gravar pra reunião</b>
       <p class="muted small">${temGravacao() ? "Grava o áudio no aparelho." : "Este navegador não grava áudio."} ${temTranscricao() ? "Transcreve ao vivo em português." : "Sem transcrição ao vivo aqui: ao final, cole a transcrição ou mande o áudio ao Chefe Geral."}</p>
@@ -51,7 +54,11 @@ export default async function abrir(el) {
     if (texto) memoria(r.titulo + " (transcrição)", texto, ["transcricao"]);
     revisar();
     // Sem transcrição ao vivo: manda o áudio para o Mac na hora; o andamento aparece na própria reunião.
-    if (!texto && audio) transcrever(id);
+    if (!texto && audio) {
+      // No celular a ponte não existe: orienta a mandar o áudio ao bot em vez de tentar o Mac.
+      if (emCelular()) { r = await atualizar("reunioes", id, y => { y.transc_estado = "celular"; }); return revisar(); }
+      transcrever(id);
+    }
   }
   async function revisar() {
     const regras = ler().regrasReuniao;
@@ -62,7 +69,7 @@ export default async function abrir(el) {
       <details class="card regras"><summary><b>Regras do resumo</b> <span class="muted small">(${regras.length}, toque para editar)</span></summary><ol id="rr">${regras.map((x, i) => `<li><input value="${esc(x)}" data-i="${i}"><button data-del="${i}" aria-label="Remover">×</button></li>`).join("")}</ol>
         <div class="row-btn"><button class="ghost" id="radd">Adicionar regra</button><button class="ghost" id="rsalvar">Salvar regras</button></div></details>
       <div class="card"><h3>Gerar resumo</h3>
-        <div class="row-btn"><button class="primary" id="rloc">Rascunho no navegador (já)</button><button class="ghost" id="rgrok">Pedir ao Chefe Geral</button><button class="ghost" id="roll">Motor 2 (Ollama)</button></div>
+        <div class="row-btn"><button class="primary" id="rloc">Rascunho no navegador (já)</button><button class="ghost" id="rgrok">${emCelular() ? "Pedir pelo Telegram" : "Pedir ao Chefe Geral"}</button><button class="ghost" id="roll">Motor 2 (Ollama)</button></div>
         <p class="muted small">Rascunho no navegador: estrutura automática, sem IA. Chefe Geral: recebe a transcrição pelo webhook e responde no chat ou Telegram; cole a resposta abaixo se quiser revisar aqui antes de enviar. Motor 2: experimental, roda no seu Mac.</p></div>
       <div class="card"><h3>Revisar</h3>${r.fonte_resumo ? `<span class="tag ${r.fonte_resumo}">${{local: "Rascunho do navegador", grok: "Do Chefe Geral", ollama: "Do Motor 2 (Ollama)"}[r.fonte_resumo]}</span>` : ""}
         <textarea class="resumo" id="rres" placeholder="O resumo aparece aqui para você revisar e editar.">${esc(r.resumo || "")}</textarea>
@@ -85,7 +92,7 @@ export default async function abrir(el) {
     box.querySelector("#rshare")?.addEventListener("click", () => navigator.share({files: [arquivo], text: "/reuniao " + r.titulo}).catch(() => {}));
     aviso("Mac fora de alcance: na fila.");
   }
-  const botaoMac = x => { const {st} = estadoT(x); return st === "transcrevendo" ? "" : `<button class="ghost" id="rmac">${st === "erro" ? "Tentar de novo" : "Transcrever no Mac"}</button>`; };
+  const botaoMac = x => { const {st} = estadoT(x); if (emCelular()) return navigator.canShare ? `<button class="ghost" id="rshareau">Mandar áudio ao bot</button>` : `<a class="tg" href="https://t.me/${BOT()}" target="_blank" rel="noopener">Abrir @${BOT()}</a>`; return st === "transcrevendo" ? "" : `<button class="ghost" id="rmac">${st === "erro" ? "Tentar de novo" : "Transcrever no Mac"}</button>`; };
   // Atualiza na tela só a parte da transcrição, se esta reunião estiver aberta (não perde o que você digitou).
   function mostrarT(x) {
     if (r?.id !== x.id || !$("#rmacst", el)) { if (!$("#rtr", el) && $(`[data-id="${x.id}"]`, el)) lista(); return; }
@@ -139,6 +146,33 @@ export default async function abrir(el) {
     if (b.dataset.abrir) { r = await pegar("reunioes", b.dataset.abrir); return revisar(); }
     if (b.id === "rvolta") { await salvarCampos(); return lista(); }
     if (b.id === "rmac") return transcrever(r.id);
+    if (b.id === "rshareau") {
+      const bl = await pegar("blobs", r.audio); if (!bl) return aviso("Áudio não está neste aparelho", true);
+      const f = new File([bl.blob], `reuniao-${r.criado_em.slice(0, 10)}.${(bl.blob.type.split("/")[1] || "webm").split(";")[0]}`, {type: bl.blob.type});
+      if (navigator.canShare?.({files: [f]})) navigator.share({files: [f], text: "/reuniao " + ($("#rti", el)?.value || r.titulo)}).catch(() => {});
+      else aviso("Este aparelho não compartilha arquivos. Mande o áudio ao @" + BOT() + " com a legenda /reuniao.", true);
+      return;
+    }
+    if (b.id === "rgrok" && emCelular()) {
+      // Celular: abre o bot no mesmo toque com a reunião pronta (#reuniao), e guarda o registro aqui.
+      const titulo = $("#rti", el).value, transcricao = $("#rtr", el).value.trim();
+      if (!transcricao) return aviso("Sem transcrição. No celular, mande o áudio ao @" + BOT() + " com a legenda /reuniao.", true);
+      const regras = ler().regrasReuniao;
+      const pTmp = {id: "r" + Date.now().toString(36), texto: `Resumo da reunião "${titulo}" seguindo as regras`, modulo: "reunioes"};
+      const link = linkTelegram(pTmp, {tipo: "reuniao_resumo", anexos: {titulo, regras, transcricao}});
+      // Grande demais para link: compartilha o .txt (a ponte entende reuniao-*.txt como reunião) ou copia.
+      const arq = new File([`Título: ${titulo}\n\nRegras:\n- ${regras.join("\n- ")}\n\nTranscrição:\n${transcricao}\n`], `reuniao-${new Date().toISOString().slice(0, 10)}.txt`, {type: "text/plain"});
+      const porArquivo = !link && navigator.canShare?.({files: [arq]});
+      if (link) abrirLink(link);
+      else if (porArquivo) navigator.share({files: [arq], text: "/reuniao " + titulo}).catch(() => {});
+      else { navigator.clipboard?.writeText("/reuniao " + titulo + "\n\n" + transcricao).catch(() => {}); abrirLink(linkBot()); }
+      await salvarCampos();
+      const {novoPedido, marcar} = await import("../core/pipeline.js");
+      const p = await novoPedido({texto: pTmp.texto, canal: "celular", modulo: "reunioes", motor: "grok"});
+      await atualizar("pedidos", p.id, x => { x.entrega = {estado: "telegram", em: agoraISO()}; });
+      await marcar(p.id, {camada: 4, status: "andamento", nota: "Aberto no @" + BOT() + ". O resumo volta no Telegram e fica no Obsidian."});
+      return aviso(link ? "Abrindo o Telegram: toque em Enviar lá." : porArquivo ? "Transcrição longa: escolha o Telegram e o @" + BOT() + " para mandar o arquivo." : "Transcrição longa: copiei com /reuniao. Cole no bot e envie.");
+    }
     if (b.id === "rplay") { const a = $("#rau", el), bl = await pegar("blobs", r.audio); a.src = URL.createObjectURL(bl.blob); a.hidden = false; a.play(); return; }
     if (b.id === "radd") { $("#rr", el).insertAdjacentHTML("beforeend", `<li><input value="" placeholder="Nova regra"><button data-del>×</button></li>`); return; }
     if (b.dataset.del !== undefined) { b.closest("li").remove(); return; }
