@@ -45,7 +45,7 @@ No Terminal do Mac (uma vez):
 ```
 cd ~/Documents/ChefeGeral/chefe-geral-hub && git pull
 ./scripts/install-relay.sh "URL_DO_WEBHOOK"   # instala a ponte e o OLLAMA_ORIGINS fixo
-./scripts/set-webhook-key.sh                   # cole a chave (não aparece na tela); testa e mostra o HTTP
+./scripts/set-webhook-key.sh                   # cole a chave crsr_... (com ou sem "Bearer "; não aparece na tela); testa e mostra o HTTP
 ./scripts/set-telegram.sh                      # cole o token do BotFather e mande /start ao bot
 ./scripts/relay-status.sh                      # estado, log e saúde
 curl -s http://127.0.0.1:8788/health

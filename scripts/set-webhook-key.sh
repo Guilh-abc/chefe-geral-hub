@@ -1,12 +1,18 @@
 #!/bin/sh
-# Grava o valor do cabeçalho Authorization do webhook. Você digita ou cola; nada aparece na tela nem no log.
+# Grava o cabeçalho Authorization do webhook ("Bearer <chave>"; aceita a chave pura ou já com Bearer). Você digita ou cola; nada aparece na tela nem no log.
 set -e
 DIR="$HOME/Library/Application Support/ChefeGeral"
 mkdir -p "$DIR" && chmod 700 "$DIR"
-echo "Cole o valor do cabeçalho Authorization exatamente como aparece no painel da rotina"
-printf "(ex.: Bearer xxxxx). Valor: "
+echo "Cole a chave do webhook da rotina (só a chave, ex.: crsr_..., ou já com Bearer na frente)."
+printf "Chave: "
 stty -echo 2>/dev/null; read -r VALOR; stty echo 2>/dev/null; echo
+# Tira espaços das pontas e põe "Bearer " na frente se faltar.
+VALOR=$(printf '%s' "$VALOR" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 [ -z "$VALOR" ] && { echo "Nada gravado."; exit 1; }
+case "$VALOR" in
+  [Bb][Ee][Aa][Rr][Ee][Rr]\ *) VALOR="Bearer ${VALOR#* }" ;;
+  *) VALOR="Bearer $VALOR" ;;
+esac
 umask 077
 printf '%s' "$VALOR" > "$DIR/webhook.key"
 chmod 600 "$DIR/webhook.key"
