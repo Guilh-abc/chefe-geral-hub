@@ -12,6 +12,7 @@ const I = {
   tarefas: '<path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
   notas: '<path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 10v4M22 12h0"/>',
   memoria: '<path d="M12 5a3 3 0 1 0-5.9.8A4 4 0 0 0 4 13a4 4 0 0 0 4 4h0a3 3 0 0 0 4 2.8M12 5a3 3 0 1 1 5.9.8A4 4 0 0 1 20 13a4 4 0 0 1-4 4h0a3 3 0 0 1-4 2.8M12 5v14.8"/>',
+  arquivo: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
   canais: '<path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>',
   casa: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z"/>',
   mic: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/>',
@@ -33,10 +34,11 @@ export const MODULOS = [
     resumo: async () => ({fila: await contar("notas", n => n.status === "nova"), erro: 0})},
   {id: "memoria", nome: "Segundo cérebro", desc: "Tudo vira nota no Obsidian, na pasta Chefe Geral, e volta como contexto.", canais: ["Obsidian"], pronto: true,
     resumo: async () => ({fila: await contar("memoria", n => n.status === "fila"), erro: 0})},
+  {id: "arquivo", nome: "Arquivo", desc: "Viewer de tudo que o Chefe Geral cria: documentos, mensagens, transcrições e o Obsidian, com o caminho no Mac.", canais: ["Ponte do Mac", "Este aparelho"], pronto: true},
   {id: "canais", nome: "Canais e motores", desc: "Webhook do Chefe Geral, Telegram, Obsidian e Motor 2 (Ollama).", canais: ["Ajustes"], pronto: true,
     resumo: async () => { const c = ler(); const falta = [!c.grok.url && "webhook", !c.telegram.chat_id && "Telegram", c.obsidian.via === "rest" && !c.obsidian.chave && "Obsidian"].filter(Boolean); return {texto: falta.length ? "Falta: " + falta.join(", ") : "Tudo configurado", alerta: falta.length > 0}; }},
 ];
-const NAV = ["inicio", "pedidos", "reunioes", "tarefas", "canais"];
+const NAV = ["inicio", "pedidos", "reunioes", "arquivo", "tarefas", "canais"];
 
 async function cartoes() {
   const el = $("#cartoes");

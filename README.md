@@ -133,3 +133,9 @@ Leveza: a casca tem cerca de 50 KB; cada módulo é baixado só quando você abr
 1. Crie `modules/<id>.js` com `export default async function abrir(el) { ... }`.
 2. Registre em `MODULOS` dentro de `core/shell.js` (nome, descrição, canais, `pronto: true`, `resumo` opcional).
 3. Qualquer envio para fora passa por `confirmar()` de `core/gate.js`.
+
+## Arquivo (viewer, só leitura)
+Módulo **Arquivo** no app: Recentes, Documentos, Mensagens, Transcrições, Obsidian e Busca, com prévia (markdown, PDF, imagem, áudio), caminho completo no Mac, Copiar caminho e Abrir no Obsidian.
+A ponte serve só as pastas da lista branca em `relay.json`, chave `arquivos_raizes` (padrão: cofre Obsidian, ~/Documents/CV, ~/Documents/ChefeGeral, ~/Documents/Maria Alice; ~/Downloads desligado):
+`"arquivos_raizes": [{"id": "downloads", "nome": "Downloads", "caminho": "~/Downloads", "ligada": true}, ...]`
+Nunca serve ~/Library (inclui os segredos da ponte), ~/.ssh, ~/Documents/nrf9151-ntn, arquivos ocultos, *.key, *token*, .env, chaves privadas. Exige o cabeçalho Origin do app.

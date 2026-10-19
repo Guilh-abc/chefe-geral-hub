@@ -10,6 +10,8 @@ HTTP em 127.0.0.1:8788
   POST /obsidian/nota   {id, caminho, md, titulo, quando} ou {"notas": [...]}: grava no cofre, em "Chefe Geral/", sem duplicar por id
   GET  /obsidian/busca?q=   busca de texto no cofre inteiro (só leitura), até 5 trechos
   POST /transcrever     corpo = o áudio (audio/*). Transcreve no VoiceStudio (pt) e devolve {ok, texto}. O áudio é apagado depois.
+  GET  /arquivos/raizes | /arquivos/lista?raiz=&caminho= | /arquivos/abrir?raiz=&caminho= | /arquivos/busca?q= | /arquivos/recentes?n=
+                        viewer SOMENTE LEITURA, só nas raízes da lista branca (relay.json "arquivos_raizes"); nunca serve segredos.
 
 Transcrição: VoiceStudio em 127.0.0.1:3900 (/v1/audio/transcriptions, faster-whisper large-v3). Nada sai do Mac.
 Se o VoiceStudio estiver fechado, o áudio do Telegram fica em audios/ e a ponte tenta de novo a cada minuto.
@@ -26,7 +28,7 @@ import json, os, re, shutil, subprocess, sys, threading, time, urllib.error, url
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.1"
+VERSAO = "1.2"
 HOME = os.path.expanduser("~")
 DIR = os.environ.get("CHEFE_DIR", os.path.join(HOME, "Library", "Application Support", "ChefeGeral"))
 LOGDIR = os.environ.get("CHEFE_LOGDIR", os.path.join(HOME, "Library", "Logs", "ChefeGeral"))
@@ -173,7 +175,8 @@ def repassar(payload):
 # O caminho do cofre fica em relay.json ("obsidian_cofre") no Mac, nunca no código público.
 OBS_INDICE = os.path.join(DIR, "obsidian-indice.json")
 PASTAS_OBS = {"pedidos": "Pedidos", "reunioes": "Reunioes", "notas": "Notas de voz", "tarefas": "Tarefas",
-              "agenda": "Agenda", "mensagens": "Mensagens", "decisoes": "Decisoes", "respostas": "Respostas"}
+              "agenda": "Agenda", "mensagens": "Mensagens", "decisoes": "Decisoes", "respostas": "Respostas",
+              "transcricoes": "Transcricoes"}
 
 
 def cofre():
@@ -263,6 +266,46 @@ def capturar(modulo, titulo, corpo, pid, tags=()):
         estado = "erro"
     if estado not in ("criado", "ja_existe"):
         anexar_jsonl(MEMORIA, {**n, "importado": False})
+
+
+def guardar_seguro(n):
+    try:
+        estado, _ = escrever_nota(n)
+    except Exception as e:
+        log(f"obsidian falhou: {e}")
+        estado = "erro"
+    if estado not in ("criado", "ja_existe"):
+        anexar_jsonl(MEMORIA, {**n, "importado": False})
+
+
+def registrar_pedido_app(payload):
+    """Todo pedido que passa pela ponte vira nota em Pedidos (mesmo id que o app usa: não duplica)."""
+    try:
+        p = (payload or {}).get("pedido") or {}
+        pid = str(p.get("id") or "")
+        if not pid or pid == "teste":
+            return
+        anx = (payload or {}).get("anexos") or {}
+        if payload.get("tipo") == "reuniao_resumo":
+            n = montar_nota("reunioes", anx.get("titulo") or (p.get("texto") or "Reunião")[:60], anx.get("transcricao") or p.get("texto") or "", pid, origem="ponte-mac", tags=("app",))
+        else:
+            n = montar_nota(p.get("modulo") if p.get("modulo") in PASTAS_OBS else "pedidos", (p.get("texto") or "Pedido")[:60], p.get("texto") or "", pid, origem="ponte-mac", tags=("app",))
+        guardar_seguro(n)
+        anexar_jsonl(MSGS, {"id": pid, "quando": agora(), "texto": (p.get("texto") or "")[:2000], "tipo": payload.get("tipo") or "pedido", "canal": p.get("canal") or "app"})
+    except Exception as e:
+        log(f"registrar pedido falhou: {e}")
+
+
+def registrar_resposta(payload, st, txt):
+    """Guarda em Respostas o retorno do webhook (aceite ou erro), para ficar visível no viewer."""
+    try:
+        pid = str(((payload or {}).get("pedido") or {}).get("id") or "")
+        if not pid or pid == "teste":
+            return
+        corpo = f"Pedido: {pid}\nHTTP: {st}\n\n```\n{(txt or '')[:4000]}\n```\n\nA resposta completa do Chefe Geral fica no chat do Grok Bot. Para guardar aqui, mande /salvar + texto no Telegram."
+        guardar_seguro(montar_nota("respostas", f"Retorno {pid}", corpo, "resp-" + pid, tags=("retorno",)))
+    except Exception as e:
+        log(f"registrar resposta falhou: {e}")
 
 
 def esvaziar_fila_memoria():
@@ -614,6 +657,162 @@ def loop_telegram():
             time.sleep(10)
 
 
+# ---------- Arquivo (viewer, SOMENTE LEITURA) ----------
+# Lista branca de raízes em relay.json ("arquivos_raizes": [{"id","nome","caminho","ligada"}]). Sem config, usa o padrão.
+# Nunca serve segredos: a pasta de suporte da ponte, *.key, *token*, .env, chaves privadas, nem ~/Documents/nrf9151-ntn.
+MIMES = {".md": "text/markdown", ".txt": "text/plain", ".json": "application/json", ".csv": "text/csv", ".log": "text/plain",
+         ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+         ".webp": "image/webp", ".svg": "image/svg+xml", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".webm": "audio/webm",
+         ".ogg": "audio/ogg", ".oga": "audio/ogg", ".wav": "audio/wav", ".mp4": "video/mp4", ".mov": "video/quicktime",
+         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+         ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".html": "text/plain"}
+TEXTO_EXT = (".md", ".txt")
+PROIBIDO_NOME = re.compile(r"(\.key$|token|^\.env|\.env$|\.pem$|\.p12$|\.pfx$|^id_(rsa|ed25519|ecdsa)|secret|senha|password|credential|\.keychain)", re.I)
+
+
+def raizes():
+    c = cfg()
+    lst = c.get("arquivos_raizes")
+    if not isinstance(lst, list) or not lst:
+        cof = cofre()[0] or os.path.expanduser(c.get("obsidian_cofre") or os.path.join(HOME, "Documents", "Obsidian"))
+        lst = [{"id": "obsidian", "nome": "Obsidian", "caminho": cof, "ligada": True},
+               {"id": "cv", "nome": "CV", "caminho": "~/Documents/CV", "ligada": True},
+               {"id": "chefegeral", "nome": "ChefeGeral", "caminho": "~/Documents/ChefeGeral", "ligada": True},
+               {"id": "mariaalice", "nome": "Maria Alice", "caminho": "~/Documents/Maria Alice", "ligada": True},
+               {"id": "downloads", "nome": "Downloads", "caminho": "~/Downloads", "ligada": False}]
+    out = []
+    for r in lst:
+        p = os.path.realpath(os.path.expanduser(str(r.get("caminho") or "")))
+        if r.get("ligada", True) and r.get("id") and os.path.isdir(p) and not proibido(p):
+            out.append({"id": str(r["id"]), "nome": r.get("nome") or r["id"], "caminho": p})
+    return out
+
+
+def proibido(p):
+    p = os.path.realpath(p)
+    bloq = [os.path.realpath(DIR), os.path.realpath(os.path.join(HOME, "Documents", "nrf9151-ntn")),
+            os.path.realpath(os.path.join(HOME, "Library")), os.path.realpath(os.path.join(HOME, ".ssh"))]
+    if any(p == b or p.startswith(b + os.sep) for b in bloq):
+        return True
+    return any(PROIBIDO_NOME.search(x) for x in p.split(os.sep) if x)
+
+
+def resolver(rid, rel):
+    """(raiz, caminho_absoluto) dentro da raiz, ou levanta PermissionError/FileNotFoundError."""
+    r = next((x for x in raizes() if x["id"] == rid), None)
+    if not r:
+        raise FileNotFoundError("raiz desconhecida")
+    rel = (rel or "").replace("\\", "/").strip("/")
+    if any(x in (".", "..") for x in rel.split("/")) or "\x00" in rel or len(rel) > 1000:
+        raise PermissionError("caminho inválido")
+    alvo = os.path.realpath(os.path.join(r["caminho"], rel))  # resolve symlinks
+    if alvo != r["caminho"] and not alvo.startswith(r["caminho"] + os.sep):
+        raise PermissionError("fora da raiz")
+    if proibido(alvo) or any(x.startswith(".") for x in os.path.relpath(alvo, r["caminho"]).split(os.sep) if x != "."):
+        raise PermissionError("bloqueado")
+    if not os.path.exists(alvo):
+        raise FileNotFoundError("não existe")
+    return r, alvo
+
+
+def info(r, p):
+    st = os.stat(p)
+    rel = os.path.relpath(p, r["caminho"])
+    return {"nome": os.path.basename(p), "tipo": "pasta" if os.path.isdir(p) else "arquivo", "tamanho": st.st_size,
+            "mtime": datetime.fromtimestamp(st.st_mtime, BRT).isoformat(timespec="seconds"), "raiz": r["id"],
+            "caminho": "" if rel == "." else rel, "absoluto": p, "mime": MIMES.get(os.path.splitext(p)[1].lower())}
+
+
+def andar(r, maximo=50000):
+    """Gera (dir, arquivo) seguros da raiz, sem ocultos, sem symlinks para fora, sem proibidos."""
+    n = 0
+    for d, ds, fs in os.walk(r["caminho"], onerror=lambda e: None):
+        ds[:] = [x for x in ds if not x.startswith(".") and not proibido(os.path.join(d, x))
+                 and os.path.realpath(os.path.join(d, x)).startswith(r["caminho"] + os.sep)]
+        for f in fs:
+            p = os.path.join(d, f)
+            if f.startswith(".") or proibido(p) or not os.path.realpath(p).startswith(r["caminho"] + os.sep):
+                continue
+            n += 1
+            if n > maximo:
+                return
+            yield p
+
+
+def arq_lista(rid, rel):
+    r, p = resolver(rid, rel)
+    if not os.path.isdir(p):
+        raise NotADirectoryError("não é pasta")
+    itens = []
+    for f in sorted(os.listdir(p)):
+        q = os.path.join(p, f)
+        if f.startswith(".") or proibido(q):
+            continue
+        rq = os.path.realpath(q)
+        if not rq.startswith(r["caminho"] + os.sep):
+            continue
+        try:
+            itens.append(info(r, rq if rq == q else q))
+        except OSError:
+            pass
+    itens.sort(key=lambda x: (x["tipo"] != "pasta", x["nome"].lower()))
+    return {"raiz": r, "caminho": "" if p == r["caminho"] else os.path.relpath(p, r["caminho"]), "absoluto": p, "itens": itens}
+
+
+def arq_busca(q, maximo=40):
+    termos = [t for t in re.findall(r"\w+", (q or "").lower(), flags=re.U) if len(t) > 1][:8]
+    if not termos:
+        return []
+    out = []
+    for r in raizes():
+        for p in andar(r):
+            nome = os.path.basename(p).lower()
+            sn = sum(t in nome for t in termos)
+            sc, trecho = 0, ""
+            if p.lower().endswith(TEXTO_EXT):
+                try:
+                    if os.path.getsize(p) <= 2_000_000:
+                        with open(p, encoding="utf-8", errors="replace") as h:
+                            txt = h.read()
+                        b = txt.lower()
+                        sc = sum(b.count(t) for t in termos)
+                        if sc:
+                            i = min(b.find(t) for t in termos if t in b)
+                            trecho = re.sub(r"\s+", " ", txt[max(0, i - 100):i + 200]).strip()
+                except OSError:
+                    pass
+            if sn or sc:
+                try:
+                    out.append({**info(r, p), "score": sn * 50 + sc, "trecho": trecho})
+                except OSError:
+                    pass
+    out.sort(key=lambda x: -x["score"])
+    return out[:maximo]
+
+
+def arq_recentes(n=50, rid=None, prefixo=""):
+    out = []
+    for r in raizes():
+        if rid and r["id"] != rid:
+            continue
+        base = r["caminho"]
+        if prefixo:
+            try:
+                _, base = resolver(r["id"], prefixo)
+            except (PermissionError, FileNotFoundError):
+                continue
+        for p in andar(r):
+            if base != r["caminho"] and not p.startswith(base + os.sep):
+                continue
+            try:
+                out.append((os.path.getmtime(p), r, p))
+            except OSError:
+                pass
+    out.sort(key=lambda x: -x[0])
+    return [info(r, p) for _, r, p in out[:n]]
+
+
 # ---------- HTTP ----------
 class Ponte(BaseHTTPRequestHandler):
     server_version = "ChefeGeralPonte/" + VERSAO
@@ -674,6 +873,10 @@ class Ponte(BaseHTTPRequestHandler):
                     falta -= len(bloco)
             t0 = time.time()
             texto = transcrever(arq, tipo)
+            if texto:
+                tid = self.headers.get("X-Chefe-Id") or ("st" + uuid.uuid4().hex[:10])
+                tid = re.sub(r"[^\w-]", "", tid)[:40] or "st" + uuid.uuid4().hex[:10]
+                guardar_seguro(montar_nota("transcricoes", texto[:60], texto, "transc-" + tid, origem="ponte-mac", tags=("transcricao",)))
             return self.responder(200, {"ok": True, "texto": texto, "segundos": round(time.time() - t0, 1), "motor": "VoiceStudio"})
         except STTFechado:
             return self.responder(503, {"ok": False, "erro": "VoiceStudio fechado. Abra o VoiceStudio no Mac e tente de novo."})
@@ -685,6 +888,50 @@ class Ponte(BaseHTTPRequestHandler):
                 os.remove(arq)
             except OSError:
                 pass
+
+    def get_arquivos(self, u):
+        if not self.headers.get("Origin"):
+            return self.responder(403, {"erro": "o viewer exige o cabeçalho Origin do app"})
+        qs = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+        try:
+            if u.path == "/arquivos/raizes":
+                return self.responder(200, {"raizes": raizes(), "obsidian": {"cofre": cofre()[0], "pasta": cofre()[1], "nome": os.path.basename(cofre()[0] or "")}})
+            if u.path == "/arquivos/lista":
+                return self.responder(200, arq_lista(qs.get("raiz", ""), qs.get("caminho", "")))
+            if u.path == "/arquivos/busca":
+                return self.responder(200, {"resultados": arq_busca(qs.get("q", ""), min(int(qs.get("max", "40")), 100))})
+            if u.path == "/arquivos/recentes":
+                return self.responder(200, {"itens": arq_recentes(min(int(qs.get("n", "50")), 300), qs.get("raiz"), qs.get("prefixo", ""))})
+            if u.path == "/arquivos/abrir":
+                r, p = resolver(qs.get("raiz", ""), qs.get("caminho", ""))
+                if os.path.isdir(p):
+                    return self.responder(400, {"erro": "é uma pasta"})
+                ext = os.path.splitext(p)[1].lower()
+                mime = MIMES.get(ext, "application/octet-stream")
+                if mime.startswith("text/") or mime == "application/json":
+                    mime += "; charset=utf-8"
+                tam = os.path.getsize(p)
+                if tam > 300_000_000:
+                    return self.responder(413, {"erro": "arquivo grande demais para o viewer", "absoluto": p})
+                self.send_response(200)
+                self.cors()
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(tam))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Content-Disposition", "inline; filename*=UTF-8''" + urllib.parse.quote(os.path.basename(p)))
+                self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
+                self.end_headers()
+                with open(p, "rb") as f:
+                    shutil.copyfileobj(f, self.wfile, 1 << 20)
+                return
+        except PermissionError as e:
+            return self.responder(403, {"erro": "bloqueado: " + str(e)})
+        except (FileNotFoundError, NotADirectoryError) as e:
+            return self.responder(404, {"erro": str(e)})
+        except ValueError:
+            return self.responder(400, {"erro": "parâmetro inválido"})
+        return self.responder(404, {"erro": "rota desconhecida"})
 
     def do_GET(self):
         if not self.origem_ok():
@@ -706,6 +953,8 @@ class Ponte(BaseHTTPRequestHandler):
         if u.path == "/obsidian/busca":
             qs = urllib.parse.parse_qs(u.query)
             return self.responder(200, {"resultados": buscar_cofre((qs.get("q") or [""])[0], min(int((qs.get("max") or ["5"])[0]), 10))})
+        if u.path.startswith("/arquivos/"):
+            return self.get_arquivos(u)
         if u.path == "/memoria":
             return self.responder(200, {"notas": [n for n in ler_jsonl(MEMORIA, 1000) if not n.get("importado")]})
         return self.responder(404, {"erro": "rota desconhecida"})
@@ -724,7 +973,9 @@ class Ponte(BaseHTTPRequestHandler):
             return self.responder(400, {"erro": "JSON inválido"})
         path = urllib.parse.urlparse(self.path).path
         if path == "/pedido":
+            registrar_pedido_app(corpo)
             st, txt = repassar(corpo)
+            registrar_resposta(corpo, st, txt)
             try:
                 resp = json.loads(txt)
             except Exception:
