@@ -75,7 +75,7 @@ def para_nuvem(pid, titulo, texto, message_id):
         return "sem_config"
     try:
         corpo = json.dumps({"pedido_id": pid, "titulo": titulo, "texto": texto, "message_id": message_id}).encode("utf-8")
-        req = urllib.request.Request(url + "/resposta", data=corpo, headers={"Content-Type": "application/json", "Authorization": "Bearer " + tok})
+        req = urllib.request.Request(url + "/resposta", data=corpo, headers={"Content-Type": "application/json", "Authorization": "Bearer " + tok, "User-Agent": "ChefeGeral-Box/1.0"})  # Cloudflare 1010 bloqueia Python-urllib
         with urllib.request.urlopen(req, timeout=20) as r:
             return "ok" if 200 <= r.status < 300 else f"erro: HTTP {r.status}"
     except Exception as e:
