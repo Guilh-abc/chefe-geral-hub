@@ -328,7 +328,7 @@ def buscar_cofre(q, maximo=5, excluir_id=None):
     STATUS["busca_erro"] = None
     if erros:
         if any(getattr(e, "errno", 0) == 1 for e in erros):
-            STATUS["busca_erro"] = "macOS não deixa a ponte ler o cofre. Ajustes do Sistema › Privacidade e Segurança › Acesso Total ao Disco › + /usr/bin/python3, depois ./scripts/relay-status.sh"
+            STATUS["busca_erro"] = "macOS não deixa a ponte ler o cofre. Ajustes do Sistema › Privacidade e Segurança › Privacidade e Segurança › Arquivos e Pastas (ou Acesso Total ao Disco) › Chefe Geral Ponte. Veja o README"
         log(f"busca no cofre: {len(erros)} pasta(s) sem acesso, ex.: {erros[0]}")
     achados.sort(key=lambda x: -x["score"])
     return achados[:maximo]

@@ -16,7 +16,11 @@ if [ ! -f "$DIR/relay.json" ]; then
 elif [ -n "$1" ]; then
   /usr/bin/python3 -c 'import json,sys; p=sys.argv[2]; c=json.load(open(p)); c["webhook_url"]=sys.argv[1]; json.dump(c, open(p,"w"), indent=2)' "$1" "$DIR/relay.json"
 fi
-sed -e "s#__DIR__#$DIR#g" -e "s#__LOGDIR__#$LOGDIR#g" "$REPO/launchagent/com.chefegeral.relay.plist" > "$PLIST"
+# Com o app "Chefe Geral Ponte" (scripts/build-ponte-app.sh), a ponte roda como filho dele (permissão de Documentos no app).
+APPEXE="$HOME/Applications/Chefe Geral Ponte.app/Contents/MacOS/chefe-geral-ponte"
+if [ -x "$APPEXE" ]; then PROG="<string>$APPEXE</string>"; echo "Usando o app Chefe Geral Ponte"
+else PROG="<string>/usr/bin/python3</string><string>$DIR/relay/relay.py</string>"; fi
+sed -e "s#__PROGARGS__#$PROG#g" -e "s#__DIR__#$DIR#g" -e "s#__LOGDIR__#$LOGDIR#g" "$REPO/launchagent/com.chefegeral.relay.plist" > "$PLIST"
 launchctl bootout "gui/$(id -u)/com.chefegeral.relay" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 # Motor 2: OLLAMA_ORIGINS persistente (roda a cada login)
