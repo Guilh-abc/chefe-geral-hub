@@ -81,6 +81,7 @@ A ponte grava as notas **direto no cofre**, só dentro de `Chefe Geral/`, e nunc
 - O app manda a fila dele para `POST /obsidian/nota` sempre que alcança o Mac (do celular, quando você abrir o app no Mac).
 - Cada nota ganha uma linha em `Chefe Geral/Diario/AAAA-MM-DD.md`.
 - Contexto: `GET /obsidian/busca?q=` procura no cofre inteiro (só leitura, sem `.obsidian/`), até 5 trechos. A ponte preenche `obsidian_context` quando o app não mandou.
+- **Permissão do macOS para a busca:** o macOS protege `~/Documents`. Se `curl -s http://127.0.0.1:8788/health` mostrar `busca_erro`, abra Ajustes do Sistema › Privacidade e Segurança › Acesso Total ao Disco › `+` › Cmd+Shift+G › `/usr/bin/python3` › ativar, e reinicie a ponte com `launchctl kickstart -k gui/$(id -u)/com.chefegeral.relay`.
 - `/salvar texto` no bot guarda o texto em `Chefe Geral/Respostas/` sem mandar ao Chefe Geral (use para salvar respostas do chat).
 - Plugin Local REST API: opcional (Canais › Obsidian).
 ```

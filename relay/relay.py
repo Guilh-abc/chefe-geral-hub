@@ -297,7 +297,8 @@ def buscar_cofre(q, maximo=5, excluir_id=None):
     if not raiz or not termos:
         return []
     achados, lidos = [], 0
-    for d, ds, fs in os.walk(raiz):
+    erros = []
+    for d, ds, fs in os.walk(raiz, onerror=erros.append):
         ds[:] = [x for x in ds if not x.startswith(".") and not (x == "Diario" and os.path.basename(d) == pasta)]
         for f in fs:
             if not f.endswith(".md"):
@@ -324,6 +325,11 @@ def buscar_cofre(q, maximo=5, excluir_id=None):
             achados.append({"arquivo": os.path.relpath(p, raiz), "score": achou * 100 + score, "trecho": corpo, "fonte": "obsidian"})
             if lidos > 20000:
                 break
+    STATUS["busca_erro"] = None
+    if erros:
+        if any(getattr(e, "errno", 0) == 1 for e in erros):
+            STATUS["busca_erro"] = "macOS não deixa a ponte ler o cofre. Ajustes do Sistema › Privacidade e Segurança › Acesso Total ao Disco › + /usr/bin/python3, depois ./scripts/relay-status.sh"
+        log(f"busca no cofre: {len(erros)} pasta(s) sem acesso, ex.: {erros[0]}")
     achados.sort(key=lambda x: -x["score"])
     return achados[:maximo]
 
@@ -691,7 +697,7 @@ class Ponte(BaseHTTPRequestHandler):
                                         "telegram": {"token_presente": bool(ler_segredo(TOKEN)), "chat_id_definido": bool(c["chat_id"]),
                                                      "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"]},
                                         "obsidian": {"cofre_configurado": bool(cofre()[0]), "pasta": cofre()[1], "cofre_nome": os.path.basename(cofre()[0] or ""),
-                                                     "notas_criadas": len(ler_json(OBS_INDICE, {}))},
+                                                     "notas_criadas": len(ler_json(OBS_INDICE, {})), "busca_erro": STATUS.get("busca_erro")},
                                         "transcricao_local": {"motor": "VoiceStudio (faster-whisper large-v3)", "ligado": vs_ligado(),
                                                               "pendentes": len(pendentes())}})
         if u.path == "/mensagens":
