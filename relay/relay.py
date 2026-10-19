@@ -44,7 +44,7 @@ import json, os, re, shutil, subprocess, sys, threading, time, urllib.error, url
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.5"
+VERSAO = "1.6"
 HOME = os.path.expanduser("~")
 DIR = os.environ.get("CHEFE_DIR", os.path.join(HOME, "Library", "Application Support", "ChefeGeral"))
 LOGDIR = os.environ.get("CHEFE_LOGDIR", os.path.join(HOME, "Library", "Logs", "ChefeGeral"))
@@ -66,7 +66,7 @@ REGRAS_PADRAO = [
     "O que melhorar na próxima",
     "Tom amigável e direto, sem enrolação, em português do Brasil",
 ]
-ACK = "Recebido. A resposta completa chega no chat do Chefe Geral."
+ACK = None  # 1.6: sem "Recebido" genérico; só "digitando..." e a transcrição do áudio
 BRT = timezone(timedelta(hours=-3))
 ORIGENS = ("https://guilh-abc.github.io",)
 LOCAL_ORIGEM = re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$")
@@ -445,6 +445,13 @@ def tg(metodo, params=None, timeout=60):
             ENVIO_LOCK.release()
 
 
+def tg_digitando():
+    try:
+        tg("sendChatAction", {"chat_id": cfg()["chat_id"], "action": "typing"}, timeout=15)
+    except Exception:
+        pass
+
+
 def tg_responder(texto):
     try:
         tg("sendMessage", {"chat_id": cfg()["chat_id"], "text": texto[:4000]}, timeout=20)
@@ -538,9 +545,10 @@ def entregar_audio(item, transc):
         os.remove(item["arquivo"])
     except OSError:
         pass
-    trecho = (transc[:300] + "...") if len(transc) > 300 else transc
+    trecho = (transc[:3500] + "…") if len(transc) > 3500 else transc
     if 200 <= st < 300:
-        tg_responder(f"{ACK}\n\nTranscrição: {trecho}")
+        tg_responder(f"Transcrição: {trecho}")
+        tg_digitando()
     else:
         tg_responder(f"Transcrevi e guardei no Mac, mas o Chefe Geral não aceitou agora (HTTP {st}).\n\nTranscrição: {trecho}")
 
@@ -664,7 +672,7 @@ def tratar_mensagem(m):
     capturar(modulo, (texto or "Mensagem")[:60], texto if tipo != "reuniao_resumo" else (anexos or {}).get("transcricao", texto), pid)
     st, corpo = repassar(payload_base(tipo, texto, pid, modulo, anexos))
     if 200 <= st < 300:
-        tg_responder(ACK)
+        tg_digitando()
     else:
         tg_responder(f"Recebido e guardado no Mac, mas o Chefe Geral não aceitou agora (HTTP {st}).")
 

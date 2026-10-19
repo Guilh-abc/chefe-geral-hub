@@ -5,3 +5,4 @@ CREATE INDEX IF NOT EXISTS itens_tipo ON itens(tipo, seq);
 CREATE TABLE IF NOT EXISTS updates (update_id INTEGER PRIMARY KEY, em TEXT);
 CREATE TABLE IF NOT EXISTS indice (arquivo TEXT PRIMARY KEY, titulo TEXT, tags TEXT);
 CREATE TABLE IF NOT EXISTS obs (caminho TEXT PRIMARY KEY, sha TEXT NOT NULL, tamanho INTEGER, atualizado TEXT, origem TEXT, texto TEXT, busca TEXT);
+CREATE TABLE IF NOT EXISTS estado (k TEXT PRIMARY KEY, v TEXT);

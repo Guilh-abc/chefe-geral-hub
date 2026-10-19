@@ -29,4 +29,5 @@ assert.ok(!w.caminhoOk("Chefe Geral/.obsidian/x.md")); assert.ok(!w.caminhoOk("C
 assert.match(w.caminhoConflito("Chefe Geral/A.md", "mac", Date.UTC(2026, 9, 19, 18, 5)), /^Chefe Geral\/A \(conflito mac 2026-10-19 15h05\)\.md$/);
 assert.equal((await w.sha256("abc")).slice(0, 8), "ba7816bf");
 assert.match(w.trecho("---\nid: 1\n---\nTexto longo sobre a Sensify e NTN", ["sensify"]), /Sensify/);
+assert.ok(w.precisaMac("faz um onepage no DeckCraft")); assert.ok(!w.precisaMac("resume a reunião da Sensify"));
 console.log("unit: ok");

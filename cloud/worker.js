@@ -21,7 +21,10 @@
 
 const WHISPER = "@cf/openai/whisper-large-v3-turbo";
 const TIPOS = {pedidos: "pedido", respostas: "resposta", transcricoes: "transcricao", notas: "nota", reunioes: "reuniao"};
-const ACK = "Recebido. A resposta completa chega aqui no Telegram.";
+// Sem "Recebido" genérico: só "digitando..." (sendChatAction), a transcrição do áudio e avisos de erro real.
+const MAC_APPS = /\b(artcraft|deckcraft|pdfcraft|voicestudio|soundcraft|no (meu )?mac|do (meu )?mac|cofre (completo|inteiro)|obsidian (completo|inteiro)|arquivos? do mac)\b/i;
+export const precisaMac = t => MAC_APPS.test(String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+const MAC_OFF_MS = 5 * 60e3;   // a ponte do Mac chama /sync a cada minuto
 const MAX_AUDIO = 20 * 1024 * 1024;   // limite de download de arquivo da Bot API
 
 export const agora = (d = Date.now()) => new Date(d - 3 * 3600e3).toISOString().slice(0, 19) + "-03:00";
@@ -49,6 +52,7 @@ async function db(env) {
       env.DB.prepare("CREATE INDEX IF NOT EXISTS itens_tipo ON itens(tipo, seq)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS updates (update_id INTEGER PRIMARY KEY, em TEXT)"),
       env.DB.prepare("CREATE TABLE IF NOT EXISTS indice (arquivo TEXT PRIMARY KEY, titulo TEXT, tags TEXT)"),
+      env.DB.prepare("CREATE TABLE IF NOT EXISTS estado (k TEXT PRIMARY KEY, v TEXT)"),
     ]);
     pronto = true;
   }
@@ -106,6 +110,11 @@ async function tg(env, metodo, params) {
   const r = await fetch(`${tgBase(env)}/${metodo}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(params)});
   return r.json().catch(() => ({ok: false}));
 }
+const digitando = env => tg(env, "sendChatAction", {chat_id: env.CHAT_ID, action: "typing"}).catch(() => null);
+async function macLigado(env) {
+  try { const r = await (await db(env)).prepare("SELECT v FROM estado WHERE k = 'mac_sync'").first(); return !!r && Date.now() - Number(r.v) < MAC_OFF_MS; }
+  catch { return true; }
+}
 const responder = (env, texto, reply) => tg(env, "sendMessage", {chat_id: env.CHAT_ID, text: texto, ...(reply ? {reply_to_message_id: reply} : {})});
 
 export function payloadBase(origem, tipo, texto, id, modulo, canal, anexos = null, ctx = []) {
@@ -160,7 +169,11 @@ async function entregar(env, {id, tipo, texto, modulo, canal, anexos, origem, re
     texto: tipo === "reuniao_resumo" ? (anexos?.transcricao || texto) : texto, meta: {modulo, canal, origem, tipo}});
   const r = await paraRotina(env, payload);
   await atualizar(env, id, {meta: {webhook_status: r.status}});
-  if (reply !== undefined) await responder(env, r.status < 300 ? ACK : `Recebido e guardado na nuvem, mas o Chefe Geral não aceitou agora (HTTP ${r.status}).`, reply);
+  if (reply !== undefined) {
+    if (r.status >= 300) await responder(env, `Guardei seu pedido na nuvem, mas o Chefe Geral não aceitou agora (HTTP ${r.status}). Tento de novo se você reenviar.`, reply);
+    else if (precisaMac(texto) && !(await macLigado(env))) await responder(env, "Seu Mac está desligado: faço a parte que depende dele (apps do Mac ou o cofre completo) quando ele ligar.", reply);
+    else await digitando(env);
+  }
   return r;
 }
 
@@ -173,6 +186,7 @@ export async function tratarTelegram(env, u) {
     if (!(r.meta?.changes > 0)) return "duplicado";
   }
   const c = classificar(m), id = "tg" + m.message_id, origem = "chefe-geral-nuvem-telegram";
+  if (c.acao === "pedido") await digitando(env);
   if (c.acao === "start") { await responder(env, "Ponte do Chefe Geral na nuvem ligada (funciona com o Mac desligado). Mande texto ou nota de voz. Use /reuniao na legenda de um áudio ou .txt para o resumo da reunião. Use /salvar + texto para guardar algo."); return "start"; }
   if (c.acao === "salvar") {
     if (!c.texto) { await responder(env, "Mande /salvar seguido do texto."); return "salvar_vazio"; }
@@ -199,6 +213,7 @@ export async function tratarTelegram(env, u) {
       await responder(env, "Não consegui transcrever na nuvem agora (" + String(e.message || e).slice(0, 80) + "). O áudio ficou na fila e o Mac transcreve quando ligar.", m.message_id);
       return "pendente";
     }
+    if (c.midia.tipo === "audio" && transc) await responder(env, "Transcrição: " + (transc.length > 3500 ? transc.slice(0, 3500) + "…" : transc), m.message_id);
     if (c.midia.tipo === "audio") await guardar(env, {id: "tr-" + id, tipo: "transcricao", titulo: (c.reuniao ? "Reunião: " : "Nota de voz: ") + (c.texto || transc).slice(0, 60), texto: transc, meta: {origem, duracao_s: c.midia.duracao_s, motor: WHISPER}});
     if (c.reuniao) { tipo = "reuniao_resumo"; modulo = "reunioes"; anexos = {titulo: c.texto || "Reunião pelo Telegram", regras: REGRAS, transcricao: transc}; texto = c.texto || "Resumo da reunião enviada pelo Telegram"; }
     else { modulo = c.midia.tipo === "audio" && !c.texto ? "notas" : "pedidos"; anexos = {transcricao: transc}; texto = (c.texto ? c.texto + "\n\n" : "") + transc; }
@@ -301,7 +316,7 @@ export default {
       return json({ok: true});
     }
     if (h === null) return json({erro: "origem não permitida"}, 403);
-    if (rota === "/health") return json({ok: true, ponte: "nuvem", versao: "2.1", hora: agora(), webhook_configurado: !!env.WEBHOOK_URL, chave_presente: !!env.WEBHOOK_KEY,
+    if (rota === "/health") return json({ok: true, ponte: "nuvem", versao: "2.2", hora: agora(), webhook_configurado: !!env.WEBHOOK_URL, chave_presente: !!env.WEBHOOK_KEY,
       telegram: !!env.TELEGRAM_TOKEN, chat_id: !!env.CHAT_ID, banco: !!env.DB, transcricao: env.AI ? "Workers AI Whisper" : null, obsidian: env.OBS ? "R2" : "D1"}, 200, h);
     const tok = bearer(req), app = igual(tok, env.APP_TOKEN || ""), resp = app || igual(tok, env.RESPOSTA_TOKEN || "");
     if (rota === "/resposta" && req.method === "POST") {
@@ -340,7 +355,7 @@ export default {
         return json({ok: true, texto, motor: "Whisper na nuvem (Cloudflare)"}, 200, h);
       }
       if (req.method === "GET" && TIPOS[rota.slice(1)]) return json({itens: await listar(env, TIPOS[rota.slice(1)], url.searchParams.get("depois"), url.searchParams.get("limite"))}, 200, h);
-      if (rota === "/sync" && req.method === "GET") { const itens = await listar(env, null, url.searchParams.get("depois"), url.searchParams.get("limite") || 100); return json({itens, ultimo: itens.at(-1)?.seq ?? Number(url.searchParams.get("depois") || 0)}, 200, h); }
+      if (rota === "/sync" && req.method === "GET") { await (await db(env)).prepare("INSERT OR REPLACE INTO estado (k, v) VALUES ('mac_sync', ?)").bind(String(Date.now())).run(); const itens = await listar(env, null, url.searchParams.get("depois"), url.searchParams.get("limite") || 100); return json({itens, ultimo: itens.at(-1)?.seq ?? Number(url.searchParams.get("depois") || 0)}, 200, h); }
       if (rota === "/pendente/ok" && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
         if (!b.id) return json({erro: "falta id"}, 400, h);

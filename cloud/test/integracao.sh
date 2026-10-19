@@ -28,7 +28,8 @@ L=$(curl -s localhost:9911/log)
 ok "webhook recebeu Authorization" 'echo "$L" | grep -q "\"auth\":\"Bearer teste\""'
 ok "origem nuvem-telegram e nuvem-app" 'echo "$L" | grep -q chefe-geral-nuvem-telegram && echo "$L" | grep -q chefe-geral-nuvem-app'
 ok "contexto do índice no payload" 'echo "$L" | grep -q "indice-nuvem"'
-ok "ack no Telegram" 'echo "$L" | grep -q "Recebido. A resposta"'
+ok "sem Recebido genérico" '! echo "$L" | grep -q "Recebido. A resposta"'
+ok "digitando no Telegram" 'echo "$L" | grep -q "typing"'
 ok "pendente/ok" 'curl -s -X POST -H "Authorization: Bearer app" -d "{\"id\":\"pend-tg13\",\"texto\":\"oi\"}" $B/pendente/ok | grep -q "\"ok\":true"'
 O='-H Authorization:Bearer\ app'
 put(){ curl -s -X POST -H "Authorization: Bearer ${2:-app}" -H 'Content-Type: application/json' -d "$1" $B/obsidian/put; }

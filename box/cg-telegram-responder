@@ -8,8 +8,8 @@ Uso:
 - Destino FIXO: o chat_id do próprio Guilherme em ~/.config/chefegeral/telegram.json. Não há opção para outro chat.
 - Token: só da variável de ambiente TELEGRAM_BOT_TOKEN. Nunca é impresso nem gravado.
 - Texto puro (sem parse_mode). Até 4096 caracteres vai como mensagem; acima disso vai como documento .md.
-- Toda mensagem leva o cabeçalho "Chefe Geral, resposta ao pedido <id>" e o botão "Guardando no Obsidian":
-  a ponte do Mac encontra essas mensagens, grava em "Chefe Geral/Respostas" e troca o botão para "No Obsidian".
+- Só o conteúdo: sem cabeçalho "resposta ao pedido" e sem botão. A cópia no Obsidian vai pela nuvem
+  (POST /resposta -> D1 -> a ponte do Mac grava em "Chefe Geral/Respostas"), nada visível no Telegram.
 - Nuvem (opcional): se ~/.config/chefegeral/nuvem.json tiver {"url", "token"} (token de resposta do Worker),
   depois de enviar ao Telegram também grava a resposta na ponte na nuvem (POST /resposta). Falha ali não muda
   o resultado do envio. Sem o arquivo, ou com --sem-nuvem, o comportamento é o mesmo de antes.
@@ -20,9 +20,6 @@ import argparse, json, os, re, sys, urllib.error, urllib.parse, urllib.request, 
 CFG = os.path.expanduser("~/.config/chefegeral/telegram.json")
 NUVEM = os.path.expanduser("~/.config/chefegeral/nuvem.json")
 LIMITE = 4096
-PREFIXO = "Chefe Geral, resposta ao pedido "
-HUB = "https://guilh-abc.github.io/chefe-geral-hub/#/arquivo"
-BOTAO = json.dumps({"inline_keyboard": [[{"text": "Guardando no Obsidian…", "url": HUB}]]}, ensure_ascii=False)
 
 
 def tam(s):  # o Telegram conta em unidades UTF-16
@@ -106,24 +103,23 @@ def main():
     if not token and not a.dry_run:
         print(json.dumps({"ok": False, "erro": "TELEGRAM_BOT_TOKEN ausente"}, ensure_ascii=False)); return 2
 
-    cab = PREFIXO + pid + (f": {titulo}" if titulo else "")
-    msg = f"{cab}\n\n{texto}"
+    msg = texto
     modo = "mensagem" if tam(msg) <= LIMITE else "documento"
     if a.dry_run:
         print(json.dumps({"ok": True, "modo": modo, "caracteres": tam(msg), "dry_run": True}, ensure_ascii=False)); return 0
     try:
         if modo == "mensagem":
-            r = chamar(token, "sendMessage", {"chat_id": chat_id, "text": msg, "reply_markup": BOTAO,
+            r = chamar(token, "sendMessage", {"chat_id": chat_id, "text": msg,
                                               "link_preview_options": json.dumps({"is_disabled": True})})
         else:
             previa = texto[:600].rstrip()
-            legenda = f"{cab}\n\nResposta longa ({tam(texto)} caracteres): o texto completo está no arquivo.\n\n{previa}…"
+            legenda = f"{previa}…"
             while tam(legenda) > 1024:
                 previa = previa[:-50]
-                legenda = f"{cab}\n\nResposta longa ({tam(texto)} caracteres): o texto completo está no arquivo.\n\n{previa}…"
+                legenda = f"{previa}…"
             nome = re.sub(r"[^\w.-]", "_", f"resposta-{pid}.md")
-            corpo = f"{cab}\n\n# {titulo or 'Resposta ' + pid}\n\n{texto}\n"
-            r = chamar(token, "sendDocument", multipart=multipart({"chat_id": chat_id, "caption": legenda, "reply_markup": BOTAO}, nome, corpo))
+            corpo = f"# {titulo or 'Resposta'}\n\n{texto}\n"
+            r = chamar(token, "sendDocument", multipart=multipart({"chat_id": chat_id, "caption": legenda}, nome, corpo))
         saida = {"ok": True, "modo": modo, "message_id": r.get("message_id")}
         if not a.sem_nuvem:
             nv = para_nuvem(pid, titulo, texto, r.get("message_id"))
