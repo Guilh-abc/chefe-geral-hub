@@ -850,7 +850,9 @@ def nuvem_req(rota, corpo=None, timeout=30):
     if not (url and tok):
         raise RuntimeError("nuvem.json sem url ou token")
     dados = json.dumps(corpo).encode() if corpo is not None else None
-    req = urllib.request.Request(url + rota, data=dados, headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
+    # User-Agent próprio: a Cloudflare bloqueia o "Python-urllib" padrão (erro 1010, HTTP 403).
+    req = urllib.request.Request(url + rota, data=dados, headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json",
+                                                                  "User-Agent": "ChefeGeral-Ponte/" + VERSAO})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
