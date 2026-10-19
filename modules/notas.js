@@ -1,5 +1,5 @@
 // Notas de voz: fale uma ideia. O áudio fica neste aparelho (IndexedDB); nada sobe sozinho.
-// Transcrição: ao vivo pelo navegador (pt-BR) quando disponível. Transcrição no Mac: aguardando a escolha do motor.
+// Transcrição: ao vivo pelo navegador (pt-BR) e, no Mac, pelo VoiceStudio via ponte (POST /transcrever; o áudio é apagado do Mac depois).
 import {$, esc, quando, aviso} from "../core/ui.js";
 import {salvar, pagina, pegar, atualizar, apagar, agoraISO} from "../core/db.js";
 import {ler} from "../core/config.js";
@@ -60,13 +60,24 @@ export default async function abrir(el) {
       return carregar(true);
     }
     if (a === "mac") {
-      // Transcrição do áudio no Mac: o motor (VoiceStudio ou SoundCraft) ainda está sendo escolhido. Por enquanto, no celular dá para mandar ao bot.
-      const bl = await pegar("blobs", n.audio);
-      const f = bl && new File([bl.blob], `nota-${n.criado_em.slice(0, 10)}.${(bl.blob.type.split("/")[1] || "webm").split(";")[0]}`, {type: bl.blob.type});
-      if (f && navigator.canShare?.({files: [f]})) {
-        if (confirm("A transcrição automática no Mac ainda está sendo configurada. Quer compartilhar o áudio com o seu bot no Telegram? Você escolhe o chat e toca em Enviar lá.")) navigator.share({files: [f]}).catch(() => {});
-      } else aviso("Transcrição no Mac em configuração. Por enquanto edite o texto ou use o ditado do teclado.", true);
-      return;
+      const bl = await pegar("blobs", n.audio); if (!bl) return aviso("Áudio não está neste aparelho", true);
+      b.disabled = true; b.textContent = "Transcrevendo...";
+      try {
+        const {transcreverNoMac} = await import("../engines/grok-webhook.js");
+        const j = await transcreverNoMac(bl.blob);
+        await atualizar("notas", id, x => { x.texto = j.texto; x.fonte_texto = "voicestudio"; });
+        if (j.texto) import("../memory/obsidian.js").then(m => m.capturar({modulo: "notas", titulo: j.texto.slice(0, 60), corpo: j.texto, id, tags: ["nota-de-voz"]})).catch(() => {});
+        aviso(`Transcrito no Mac em ${j.segundos} s`);
+      } catch (err) {
+        if (err.code !== "PONTE_OFF") aviso(err.message, true);
+        else {
+          // Celular: o Mac não está ao alcance. Oferece compartilhar o áudio com o seu bot (você toca em Enviar no Telegram).
+          const f = new File([bl.blob], `nota-${n.criado_em.slice(0, 10)}.${(bl.blob.type.split("/")[1] || "webm").split(";")[0]}`, {type: bl.blob.type});
+          if (navigator.canShare?.({files: [f]}) && confirm("Mac fora de alcance. Compartilhar o áudio com o seu bot no Telegram? Lá ele é transcrito no Mac.")) navigator.share({files: [f]}).catch(() => {});
+          else aviso("Mac fora de alcance. Abra o app no Chrome do Mac ou mande o áudio ao seu bot.", true);
+        }
+      }
+      return carregar(true);
     }
     if (a === "apagar" && confirm("Apagar esta nota e o áudio deste aparelho?")) { if (n.audio) await apagar("blobs", n.audio); await apagar("notas", id); return carregar(true); }
   });

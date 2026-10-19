@@ -73,3 +73,15 @@ export function linkTelegram(p, extra = {}) {
   if (txt.length > 3500) return null;  // grande demais para link: use Compartilhar arquivo
   return `https://t.me/${bot}?text=${encodeURIComponent(txt)}`;
 }
+
+// Transcrição local no Mac: manda o áudio para a ponte, que usa o VoiceStudio (pt) e devolve só o texto.
+// O áudio é apagado do Mac logo depois. Erro com code "PONTE_OFF" quando o Mac não está ao alcance.
+export async function transcreverNoMac(blob) {
+  const c = ler().grok;
+  let r;
+  try { r = await fetch(c.ponte.replace(/\/$/, "") + "/transcrever", {method: "POST", headers: {"Content-Type": (blob.type || "application/octet-stream").split(";")[0]}, body: blob}); }
+  catch { const e = new Error("Ponte do Mac fora de alcance"); e.code = "PONTE_OFF"; throw e; }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.erro || "Transcrição falhou (HTTP " + r.status + ")");
+  return j;
+}

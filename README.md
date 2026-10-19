@@ -21,7 +21,7 @@
 | Segundo cérebro | pronto | Estado do Obsidian, fila, sincronizar, trazer capturas do Telegram, busca (a mesma do `obsidian_context`). |
 | Canais e motores | pronto | Ponte do Mac, Telegram, Obsidian, Ollama. |
 
-Transcrição de áudio no Mac (voz do Telegram, notas gravadas): **em pausa** até a escolha do motor (VoiceStudio ou SoundCraft). Gravações ficam no aparelho onde foram feitas.
+Transcrição no Mac: **VoiceStudio** (faster-whisper large-v3, pt, local). Voz e áudio mandados ao bot são transcritos pela ponte, e só o texto vai ao Chefe Geral (o áudio é apagado do Mac depois). No app do Mac, "Transcrever no Mac" em Notas de voz e Reuniões manda o áudio para `POST /transcrever` e mostra o texto. Com o VoiceStudio fechado, o bot responde "VoiceStudio fechado, transcrevo quando abrir" e a ponte tenta de novo a cada minuto. As gravações ficam no aparelho onde foram feitas.
 
 ### As 7 camadas de um pedido
 1 Captura · 2 Triagem · 3 Contexto (notas do Obsidian) · 4 Envio ao motor · 5 Plano e seu OK · 6 Execução · 7 Retorno.
@@ -56,7 +56,7 @@ Modo direto (avançado, só se o webhook liberar CORS): Canais › Motor 1 › A
 
 ### Pelo celular
 O celular não alcança o Mac. Dois caminhos:
-1. **Telegram (recomendado):** mande texto ou voz ao seu bot. A ponte do Mac pega (só do seu chat_id), repassa ao Chefe Geral e responde "Recebido. Camada 1 (captura) ok; camada 4: entregue...". O Telegram guarda as mensagens por até 24 h se o Mac estiver desligado.
+1. **Telegram (recomendado):** mande texto ou voz ao seu bot. A ponte do Mac pega (só do seu chat_id), repassa ao Chefe Geral e responde "Recebido. A resposta completa chega no chat do Chefe Geral." (a rotina responde no chat do Grok Bot, não no Telegram). O Telegram guarda as mensagens por até 24 h se o Mac estiver desligado.
 2. **App no celular:** o pedido fica na fila e o botão **Abrir no Telegram** abre o chat do bot com o pedido pronto; você toca em Enviar lá. Na reunião, o app compartilha o arquivo da transcrição com o Telegram.
 Quando o app do Mac vê a ponte ligada, reenvia a fila sozinho (sem duplicar).
 

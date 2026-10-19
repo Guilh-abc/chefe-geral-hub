@@ -7,6 +7,10 @@ HTTP em 127.0.0.1:8788
   GET  /mensagens       últimas mensagens recebidas do seu bot (log local, sem segredos)
   GET  /memoria         capturas pendentes para o Obsidian (o app importa e grava no cofre)
   POST /memoria/ok      {"ids": [...]} marca capturas como importadas
+  POST /transcrever     corpo = o áudio (audio/*). Transcreve no VoiceStudio (pt) e devolve {ok, texto}. O áudio é apagado depois.
+
+Transcrição: VoiceStudio em 127.0.0.1:3900 (/v1/audio/transcriptions, faster-whisper large-v3). Nada sai do Mac.
+Se o VoiceStudio estiver fechado, o áudio do Telegram fica em audios/ e a ponte tenta de novo a cada minuto.
 
 Telegram (opcional): faz long polling de getUpdates do SEU bot, aceita só o seu chat_id,
 transforma texto, nota de voz, áudio e documento em pedido e responde "Recebido".
@@ -20,7 +24,7 @@ import json, os, re, shutil, subprocess, sys, threading, time, urllib.error, url
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.0"
+VERSAO = "1.1"
 HOME = os.path.expanduser("~")
 DIR = os.environ.get("CHEFE_DIR", os.path.join(HOME, "Library", "Application Support", "ChefeGeral"))
 LOGDIR = os.environ.get("CHEFE_LOGDIR", os.path.join(HOME, "Library", "Logs", "ChefeGeral"))
@@ -31,6 +35,18 @@ ESTADO = os.path.join(DIR, "relay-estado.json")
 MSGS = os.path.join(DIR, "mensagens.jsonl")
 MEMORIA = os.path.join(DIR, "obsidian-fila.jsonl")
 AUDIOS = os.path.join(DIR, "audios")
+PENDENTES = os.path.join(DIR, "stt-pendentes.json")
+STT_URL = os.environ.get("CHEFE_STT_URL", "http://127.0.0.1:3900/v1/audio/transcriptions")
+REGRAS_PADRAO = [
+    "Comece com uma frase de amigo, direto e sincero, dizendo como foi a reunião",
+    "Pontos principais em até 5 tópicos",
+    "Decisões tomadas",
+    "Ações com responsável e prazo (quem, o quê, até quando)",
+    "O que foi bem",
+    "O que melhorar na próxima",
+    "Tom amigável e direto, sem enrolação, em português do Brasil",
+]
+ACK = "Recebido. A resposta completa chega no chat do Chefe Geral."
 BRT = timezone(timedelta(hours=-3))
 ORIGENS = ("https://guilh-abc.github.io",)
 LOCAL_ORIGEM = re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$")
@@ -191,10 +207,112 @@ def baixar(file_id, nome):
     return destino
 
 
-def transcrever(arquivo):
-    """Transcrição local PAUSADA: o motor (VoiceStudio ou SoundCraft) ainda não foi confirmado pelo Guilherme.
-    Por enquanto o áudio fica em audios/ no Mac e o caminho vai no payload. Retorna None."""
-    return None
+class STTFechado(Exception):
+    pass
+
+
+def stt_url():
+    return cfg().get("stt_url") or STT_URL
+
+
+def vs_ligado():
+    u = urllib.parse.urlparse(stt_url())
+    try:
+        urllib.request.urlopen(f"{u.scheme}://{u.netloc}/", timeout=2).close()
+        return True
+    except urllib.error.HTTPError:
+        return True  # respondeu, mesmo que 404: está aberto
+    except Exception:
+        return False
+
+
+def transcrever(arquivo, mime=None):
+    """Transcreve no VoiceStudio (pt). Retorna o texto. STTFechado se o VoiceStudio não responder."""
+    limite = "----chefegeral" + uuid.uuid4().hex
+    nome = os.path.basename(arquivo)
+    with open(arquivo, "rb") as f:
+        audio = f.read()
+    partes = []
+    for k, v in (("language", "pt"), ("response_format", "json")):
+        partes.append(f'--{limite}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    partes.append(f'--{limite}\r\nContent-Disposition: form-data; name="file"; filename="{nome}"\r\nContent-Type: {mime or "application/octet-stream"}\r\n\r\n'.encode() + audio + b"\r\n")
+    partes.append(f"--{limite}--\r\n".encode())
+    req = urllib.request.Request(stt_url(), data=b"".join(partes), headers={"Content-Type": "multipart/form-data; boundary=" + limite})
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=4 * 3600) as r:
+            j = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"VoiceStudio HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}")
+    except (urllib.error.URLError, ConnectionError, OSError) as e:
+        raise STTFechado(str(e))
+    texto = (j.get("text") or "").strip()
+    log(f"transcrição ok: {len(audio)} bytes em {time.time() - t0:.1f}s, {len(texto)} caracteres")
+    return texto
+
+
+def regras():
+    return cfg().get("regras_reuniao") or REGRAS_PADRAO
+
+
+def pendentes():
+    return ler_json(PENDENTES, [])
+
+
+def guardar_pendentes(lista):
+    with LOCK:
+        gravar_json(PENDENTES, lista)
+
+
+def entregar_audio(item, transc):
+    """Monta o payload com a transcrição (não o áudio), repassa, avisa no Telegram e apaga o áudio do Mac."""
+    leg, pid = item.get("legenda") or "", item["pid"]
+    if item.get("reuniao"):
+        tipo, modulo = "reuniao_resumo", "reunioes"
+        texto = leg or "Resumo da reunião enviada pelo Telegram"
+        anexos = {"titulo": leg or "Reunião pelo Telegram", "regras": regras(), "transcricao": transc,
+                  "duracao_s": item.get("duracao_s"), "origem_audio": "telegram"}
+    else:
+        tipo, modulo = "pedido", item.get("modulo") or "notas"
+        texto = (leg + "\n\n" if leg else "") + (transc or "(áudio sem fala reconhecida)")
+        anexos = {"transcricao": transc, "duracao_s": item.get("duracao_s"), "origem_audio": "telegram"}
+    anexar_jsonl(MSGS, {"id": pid, "quando": agora(), "texto": texto[:2000], "tipo": tipo, "midia": True})
+    capturar(modulo, (leg or transc or "Nota de voz")[:60], transc if tipo == "reuniao_resumo" else texto, pid)
+    st, _ = repassar(payload_base(tipo, texto, pid, modulo, anexos))
+    try:
+        os.remove(item["arquivo"])
+    except OSError:
+        pass
+    trecho = (transc[:300] + "...") if len(transc) > 300 else transc
+    if 200 <= st < 300:
+        tg_responder(f"{ACK}\n\nTranscrição: {trecho}")
+    else:
+        tg_responder(f"Transcrevi e guardei no Mac, mas o Chefe Geral não aceitou agora (HTTP {st}).\n\nTranscrição: {trecho}")
+
+
+def loop_stt():
+    """Tenta de novo os áudios que chegaram com o VoiceStudio fechado."""
+    while True:
+        time.sleep(60)
+        lista = pendentes()
+        if not lista or not vs_ligado():
+            continue
+        for item in list(lista):
+            try:
+                transc = transcrever(item["arquivo"], item.get("mime"))
+            except STTFechado:
+                break
+            except Exception as e:
+                item["tentativas"] = item.get("tentativas", 0) + 1
+                log(f"transcrição pendente falhou ({item['pid']}): {e}")
+                if item["tentativas"] < 5:
+                    continue
+                tg_responder(f"Não consegui transcrever um áudio depois de 5 tentativas. Ele ficou no Mac: {item['arquivo']}")
+                transc = None
+            lista = [x for x in pendentes() if x["pid"] != item["pid"]]
+            guardar_pendentes(lista)
+            if transc is not None:
+                entregar_audio(item, transc)
 
 
 def payload_base(tipo, texto, pid, modulo, anexos=None):
@@ -235,7 +353,6 @@ def tratar_mensagem(m):
     if texto.startswith("/reuniao"):
         texto = texto[len("/reuniao"):].strip()
     midia = m.get("voice") or m.get("audio") or (m.get("document") if ((m.get("document") or {}).get("mime_type") or "").startswith(("audio/", "text/")) or nome_doc.endswith((".txt", ".md")) else None)
-    aviso_transc = ""
     if midia:
         try:
             arq = baixar(midia["file_id"], pid)
@@ -245,21 +362,28 @@ def tratar_mensagem(m):
         if arq.endswith((".txt", ".md", ".vtt", ".srt")):
             with open(arq, encoding="utf-8", errors="replace") as f:
                 transc = f.read()
+            if reuniao:
+                tipo, modulo = "reuniao_resumo", "reunioes"
+                anexos = {"titulo": texto or "Reunião pelo Telegram", "regras": regras(), "transcricao": transc}
+                texto = texto or "Resumo da reunião enviada pelo Telegram"
+            else:
+                anexos = {"transcricao": transc}
+                texto = (texto + "\n\n" if texto else "") + transc
         else:
-            transc = transcrever(arq)
-        info = {"arquivo_no_mac": arq, "mime": midia.get("mime_type"), "duracao_s": midia.get("duration")}
-        if transc:
-            info["transcricao"] = transc
-        else:
-            aviso_transc = " Transcrição no Mac em pausa (motor a confirmar). O áudio ficou no Mac; mandei só o caminho."
-        if reuniao:
-            tipo, modulo = "reuniao_resumo", "reunioes"
-            anexos = {"titulo": texto or "Reunião pelo Telegram", "regras": [], "transcricao": transc or "", **info}
-            texto = texto or "Resumo da reunião enviada pelo Telegram"
-        else:
-            anexos = info
-            texto = (texto + "\n\n" if texto else "") + (transc or "(nota de voz sem transcrição)")
-            modulo = "notas" if not m.get("caption") else modulo
+            item = {"pid": pid, "arquivo": arq, "mime": midia.get("mime_type"), "duracao_s": midia.get("duration"),
+                    "legenda": texto, "reuniao": reuniao, "modulo": "notas" if not m.get("caption") else modulo, "quando": agora()}
+            try:
+                transc = transcrever(arq, item["mime"])
+            except STTFechado:
+                guardar_pendentes(pendentes() + [item])
+                tg_responder("VoiceStudio fechado, transcrevo quando abrir.")
+                return
+            except Exception as e:
+                log(f"transcrição falhou ({pid}): {e}")
+                guardar_pendentes(pendentes() + [item])
+                tg_responder("Não consegui transcrever agora; o áudio ficou no Mac e eu tento de novo em instantes.")
+                return
+            return entregar_audio(item, transc)
     elif reuniao and tipo != "reuniao_resumo":
         tipo, modulo, anexos = "reuniao_resumo", "reunioes", {"titulo": "Reunião pelo Telegram", "regras": [], "transcricao": texto}
     if not texto and not anexos:
@@ -268,9 +392,9 @@ def tratar_mensagem(m):
     capturar(modulo, (texto or "Mensagem")[:60], texto if tipo != "reuniao_resumo" else (anexos or {}).get("transcricao", texto), pid)
     st, corpo = repassar(payload_base(tipo, texto, pid, modulo, anexos))
     if 200 <= st < 300:
-        tg_responder(f"Recebido. Camada 1 (captura) ok; camada 4: entregue ao Chefe Geral (HTTP {st}).{aviso_transc}")
+        tg_responder(ACK)
     else:
-        tg_responder(f"Recebido e guardado no Mac, mas o Chefe Geral não aceitou agora (HTTP {st}). Vou manter na fila do log.{aviso_transc}")
+        tg_responder(f"Recebido e guardado no Mac, mas o Chefe Geral não aceitou agora (HTTP {st}).")
 
 
 def loop_telegram():
@@ -341,6 +465,38 @@ class Ponte(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
+    def post_transcrever(self, n):
+        """Áudio do app no Mac: grava num arquivo temporário, transcreve, apaga e devolve só o texto."""
+        if n <= 0 or n > 1_000_000_000:
+            return self.responder(400, {"ok": False, "erro": "áudio vazio ou grande demais"})
+        tipo = (self.headers.get("Content-Type") or "application/octet-stream").split(";")[0].strip()
+        ext = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".m4a", "audio/x-m4a": ".m4a", "audio/mpeg": ".mp3",
+               "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "audio/aac": ".aac", "audio/flac": ".flac"}.get(tipo, ".bin")
+        os.makedirs(AUDIOS, exist_ok=True)
+        arq = os.path.join(AUDIOS, "app-" + uuid.uuid4().hex[:10] + ext)
+        try:
+            with open(arq, "wb") as f:
+                falta = n
+                while falta > 0:
+                    bloco = self.rfile.read(min(falta, 1 << 20))
+                    if not bloco:
+                        break
+                    f.write(bloco)
+                    falta -= len(bloco)
+            t0 = time.time()
+            texto = transcrever(arq, tipo)
+            return self.responder(200, {"ok": True, "texto": texto, "segundos": round(time.time() - t0, 1), "motor": "VoiceStudio"})
+        except STTFechado:
+            return self.responder(503, {"ok": False, "erro": "VoiceStudio fechado. Abra o VoiceStudio no Mac e tente de novo."})
+        except Exception as e:
+            log(f"/transcrever falhou: {e}")
+            return self.responder(502, {"ok": False, "erro": str(e)[:300]})
+        finally:
+            try:
+                os.remove(arq)
+            except OSError:
+                pass
+
     def do_GET(self):
         if not self.origem_ok():
             return self.responder(403, {"erro": "origem não permitida"})
@@ -351,7 +507,8 @@ class Ponte(BaseHTTPRequestHandler):
                                         "webhook_configurado": bool(c["webhook_url"]), "chave_presente": bool(ler_segredo(KEY)),
                                         "telegram": {"token_presente": bool(ler_segredo(TOKEN)), "chat_id_definido": bool(c["chat_id"]),
                                                      "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"]},
-                                        "transcricao_local": "pausada (motor a confirmar)"})
+                                        "transcricao_local": {"motor": "VoiceStudio (faster-whisper large-v3)", "ligado": vs_ligado(),
+                                                              "pendentes": len(pendentes())}})
         if u.path == "/mensagens":
             lim = int((urllib.parse.parse_qs(u.query).get("limite") or ["30"])[0])
             return self.responder(200, {"mensagens": list(reversed(ler_jsonl(MSGS, min(lim, 200))))})
@@ -363,6 +520,8 @@ class Ponte(BaseHTTPRequestHandler):
         if not self.origem_ok():
             return self.responder(403, {"erro": "origem não permitida"})
         n = int(self.headers.get("Content-Length") or 0)
+        if urllib.parse.urlparse(self.path).path == "/transcrever":
+            return self.post_transcrever(n)
         if n <= 0 or n > 8_000_000:
             return self.responder(400, {"erro": "corpo vazio ou grande demais"})
         try:
@@ -399,6 +558,7 @@ def main():
     porta = int(os.environ.get("CHEFE_PORTA") or cfg()["porta"])
     srv = ThreadingHTTPServer(("127.0.0.1", porta), Ponte)
     threading.Thread(target=loop_telegram, daemon=True).start()
+    threading.Thread(target=loop_stt, daemon=True).start()
     log(f"ponte ligada em 127.0.0.1:{porta}")
     print(f"Ponte do Chefe Geral em http://127.0.0.1:{porta}", flush=True)
     srv.serve_forever()

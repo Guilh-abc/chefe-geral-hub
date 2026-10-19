@@ -43,7 +43,7 @@ export default async function abrir(el) {
     const n = r.resumo ? 3 : r.transcricao ? 2 : 1;
     el.innerHTML = etapas(n) + `<div class="card"><label class="campo">Título<input id="rti" value="${esc(r.titulo)}"></label>
       <label class="campo">Transcrição ${r.transcricao ? `<span class="muted">(${r.transcricao.split(/\s+/).length} palavras)</span>` : ""}<textarea id="rtr" rows="6" placeholder="Sem transcrição. Cole aqui o texto da reunião.">${esc(r.transcricao || "")}</textarea></label>
-      ${r.audio ? `<div class="row-btn"><button class="ghost" id="rplay">Ouvir áudio</button></div><audio id="rau" controls hidden style="width:100%;margin-top:8px"></audio>` : ""}</div>
+      ${r.audio ? `<div class="row-btn"><button class="ghost" id="rplay">Ouvir áudio</button><button class="ghost" id="rmac">Transcrever no Mac</button></div><p class="muted small" id="rmacst"></p><audio id="rau" controls hidden style="width:100%;margin-top:8px"></audio>` : ""}</div>
       <details class="card regras"><summary><b>Regras do resumo</b> <span class="muted small">(${regras.length}, toque para editar)</span></summary><ol id="rr">${regras.map((x, i) => `<li><input value="${esc(x)}" data-i="${i}"><button data-del="${i}" aria-label="Remover">×</button></li>`).join("")}</ol>
         <div class="row-btn"><button class="ghost" id="radd">Adicionar regra</button><button class="ghost" id="rsalvar">Salvar regras</button></div></details>
       <div class="card"><h3>Gerar resumo</h3>
@@ -79,6 +79,20 @@ export default async function abrir(el) {
     if (b.id === "rp") return parar();
     if (b.dataset.abrir) { r = await pegar("reunioes", b.dataset.abrir); return revisar(); }
     if (b.id === "rvolta") { await salvarCampos(); return lista(); }
+    if (b.id === "rmac") {
+      const bl = await pegar("blobs", r.audio); if (!bl) return aviso("Áudio não está neste aparelho", true);
+      const st = $("#rmacst", el); b.disabled = true;
+      st.textContent = "Transcrevendo no Mac (VoiceStudio). Uma reunião longa pode levar alguns minutos...";
+      try {
+        const {transcreverNoMac} = await import("../engines/grok-webhook.js");
+        const j = await transcreverNoMac(bl.blob);
+        await salvarCampos();
+        r = await atualizar("reunioes", r.id, x => { x.transcricao = j.texto; x.fonte_transcricao = "voicestudio"; });
+        memoria(r.titulo + " (transcrição)", j.texto, ["transcricao"]);
+        aviso(`Transcrito no Mac em ${j.segundos} s`);
+        return revisar();
+      } catch (err) { b.disabled = false; st.textContent = ""; return aviso(err.code === "PONTE_OFF" ? "Mac fora de alcance. No celular: mande o áudio ao seu bot com /reuniao na legenda." : err.message, true); }
+    }
     if (b.id === "rplay") { const a = $("#rau", el), bl = await pegar("blobs", r.audio); a.src = URL.createObjectURL(bl.blob); a.hidden = false; a.play(); return; }
     if (b.id === "radd") { $("#rr", el).insertAdjacentHTML("beforeend", `<li><input value="" placeholder="Nova regra"><button data-del>×</button></li>`); return; }
     if (b.dataset.del !== undefined) { b.closest("li").remove(); return; }

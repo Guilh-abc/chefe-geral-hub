@@ -40,7 +40,7 @@ Para `tipo: "agenda_evento"` (só sai depois do seu toque), `confirmado_pelo_usu
 ```json
 {"titulo": "...", "inicio": "2026-10-20T10:00:00-03:00", "fim": "...", "local": "...", "convidados": ["a@b.com"], "agenda": "google|m365", "detalhes": "..."}
 ```
-Para `tipo: "teste"`: só confirmar o recebimento. Pedidos vindos do Telegram têm `origem: "chefe-geral-ponte-telegram"`, `pedido.canal: "telegram"` e, para voz, `anexos.arquivo_no_mac`, `mime`, `duracao_s` (o áudio não sai do Mac; transcrição em pausa).
+Para `tipo: "teste"`: só confirmar o recebimento. Pedidos vindos do Telegram têm `origem: "chefe-geral-ponte-telegram"`, `pedido.canal: "telegram"` e, para voz, a transcrição do VoiceStudio em `pedido.texto` e `anexos.transcricao` (o áudio não vai). Áudio com `/reuniao` na legenda vira `reuniao_resumo` com `anexos.titulo`, `anexos.regras` e `anexos.transcricao`.
 
 Resposta esperada: qualquer HTTP 2xx. Opcionalmente JSON `{"camada": 5, "status": "andamento", "resposta": "texto"}`; se vier `resposta`, o app mostra e marca o pedido como concluído.
 

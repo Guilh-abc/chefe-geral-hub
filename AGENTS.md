@@ -45,7 +45,7 @@ HTML, CSS e JavaScript puro (ES modules). Sem npm, sem build, sem framework.
 - Ponte: `relay/relay.py` em 127.0.0.1:8788 (LaunchAgent `com.chefegeral.relay`). Instalar: `./scripts/install-relay.sh`. Estado: `./scripts/relay-status.sh`.
 - Chave do webhook e token do Telegram ficam em `~/Library/Application Support/ChefeGeral/` (chmod 600) e são digitados pelo Guilherme em `./scripts/set-webhook-key.sh` e `./scripts/set-telegram.sh`. Agentes nunca leem, imprimem ou registram esses arquivos.
 - Ollama (Motor 2): `OLLAMA_ORIGINS` fica fixo no login pelo LaunchAgent `com.chefegeral.ollama-origins` (instalado junto com a ponte), com valor `https://guilh-abc.github.io,http://localhost:*,http://127.0.0.1:*`. Depois de mudar, reabra o Ollama.
-- Transcrição no Mac (STT): pausada até o Guilherme escolher o motor (VoiceStudio ou SoundCraft). Não instale modelos.
+- Transcrição no Mac (STT): VoiceStudio em 127.0.0.1:3900 (`/v1/audio/transcriptions`, faster-whisper large-v3, pt). A ponte expõe `POST /transcrever`. Só o texto vai ao webhook; o áudio é apagado do Mac depois. Não instale nem troque modelos sem o OK do Guilherme e não mexa na voz clonada (Qwen3-TTS).
 
 ## Testar localmente
 ```
