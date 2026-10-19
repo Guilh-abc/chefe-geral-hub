@@ -1,10 +1,11 @@
 #!/bin/bash
 # Liga a ponte do Chefe Geral na nuvem (Cloudflare Worker GRÁTIS, na SUA conta). Rode no Mac, na pasta do repo:
 #   ./scripts/nuvem-instalar.sh
-# O que faz: login no Cloudflare (abre o navegador), cria o banco D1, publica o Worker, grava os segredos
+# O que faz: login no Cloudflare (abre o navegador), cria o banco D1 e o bucket R2 do Obsidian, publica o Worker, grava os segredos
 # (lidos dos arquivos que a ponte do Mac já tem; tokens novos gerados aqui), liga o webhook do Telegram,
 # grava ~/Library/Application Support/ChefeGeral/nuvem.json (600) e põe a ponte do Mac em "modo": "nuvem".
-# Pode rodar de novo sem estragar nada (reaproveita o banco e gera tokens novos). Desfazer: ./scripts/nuvem-desfazer.sh
+# Pode rodar de novo sem estragar nada (reaproveita banco e bucket, mas gera tokens novos).
+# Já instalado? Para só atualizar o Worker e a ponte SEM trocar tokens: ./scripts/nuvem-atualizar.sh Desfazer: ./scripts/nuvem-desfazer.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"; CLOUD="$REPO/cloud"
@@ -56,6 +57,15 @@ fi
 sed -e "s/00000000-0000-0000-0000-000000000000/$DBID/" -e "s/^CHAT_ID = \"\".*/CHAT_ID = \"$CHAT_ID\"/" -e "s|^WEBHOOK_URL = \"\".*|WEBHOOK_URL = \"$WH_URL\"|" wrangler.toml > "$LOCAL_TOML"
 OUT=$($W d1 execute chefe-geral --remote --yes --file schema.sql -c "$LOCAL_TOML" 2>&1) || falha "criar as tabelas no D1" "$OUT"
 
+echo "   Bucket R2 'chefe-geral-obsidian' (Obsidian na nuvem, privado)..."
+OUT=$($W r2 bucket list 2>&1) || falha "listar os buckets R2 (ative o R2 em dash.cloudflare.com > R2 Object Storage, plano grátis, e rode de novo)" "$OUT"
+if ! printf '%s' "$OUT" | grep -Eq '(^|[[:space:]"])chefe-geral-obsidian([[:space:]"]|$)'; then
+  OUT=$($W r2 bucket create chefe-geral-obsidian 2>&1) || falha "criar o bucket R2 chefe-geral-obsidian (ative o R2 no painel e rode de novo)" "$OUT"
+  echo "   bucket criado"
+else
+  echo "   bucket já existe"
+fi
+
 echo "3/7 Publicando o Worker..."
 OUT=$($W deploy -c "$LOCAL_TOML" 2>&1) || falha "publicar o Worker" "$OUT"
 URL=$(echo "$OUT" | grep -Eo 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -1)
@@ -83,7 +93,7 @@ python3 - "$DIR/relay.json" <<'PY'
 import json, sys
 p = sys.argv[1]; c = json.load(open(p)); c["modo"] = "nuvem"; json.dump(c, open(p, "w"), ensure_ascii=False, indent=2)
 PY
-mkdir -p "$DIR/relay" && cp "$REPO/relay/relay.py" "$DIR/relay/relay.py"   # ponte 1.4 (sabe o modo nuvem)
+mkdir -p "$DIR/relay" && cp "$REPO/relay/relay.py" "$DIR/relay/relay.py"   # ponte 1.5 (modo nuvem + Obsidian na nuvem)
 launchctl kickstart -k "gui/$(id -u)/com.chefegeral.relay" 2>/dev/null || echo "   (reinicie a ponte: ./scripts/install-relay.sh)"
 sleep 2
 

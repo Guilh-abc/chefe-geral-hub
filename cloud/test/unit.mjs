@@ -23,4 +23,10 @@ assert.equal(ctx[0].arquivo, "c/Skylo NTN.md"); assert.equal(ctx.length, 2);
 const p = w.payloadBase("chefe-geral-nuvem-telegram", "pedido", "oi", "tg1", "pedidos", "telegram");
 for (const k of ["versao", "origem", "tipo", "enviado_em", "pedido", "anexos", "obsidian_context", "instrucoes"]) assert.ok(k in p, k);
 assert.match(w.agora(0), /^1969-12-31T21:00:00-03:00$/);
+// Obsidian na nuvem
+assert.ok(w.caminhoOk("Chefe Geral/Infra/Nuvem.md")); assert.ok(!w.caminhoOk("Chefe Geral/../x.md")); assert.ok(!w.caminhoOk("Outra/x.md"));
+assert.ok(!w.caminhoOk("Chefe Geral/.obsidian/x.md")); assert.ok(!w.caminhoOk("Chefe Geral/x.txt")); assert.ok(!w.caminhoOk("Chefe Geral"));
+assert.match(w.caminhoConflito("Chefe Geral/A.md", "mac", Date.UTC(2026, 9, 19, 18, 5)), /^Chefe Geral\/A \(conflito mac 2026-10-19 15h05\)\.md$/);
+assert.equal((await w.sha256("abc")).slice(0, 8), "ba7816bf");
+assert.match(w.trecho("---\nid: 1\n---\nTexto longo sobre a Sensify e NTN", ["sensify"]), /Sensify/);
 console.log("unit: ok");

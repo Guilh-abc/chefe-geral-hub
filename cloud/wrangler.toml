@@ -24,3 +24,8 @@ binding = "AI"
 binding = "DB"
 database_name = "chefe-geral"
 database_id = "00000000-0000-0000-0000-000000000000"
+
+# Obsidian na nuvem: espelho da pasta "Chefe Geral" do cofre (bucket privado, criado pelo instalador).
+[[r2_buckets]]
+binding = "OBS"
+bucket_name = "chefe-geral-obsidian"

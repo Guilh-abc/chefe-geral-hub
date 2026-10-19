@@ -43,3 +43,33 @@ Com ela, o Chefe Geral atende você 24 horas, mesmo com o Mac desligado. Tudo ro
 - Os segredos ficam só no Cloudflare (`wrangler secret`): a chave da rotina, o token do bot, o segredo do webhook, o token do app e o token de resposta.
 - O bot só atende o seu chat_id. Mensagens de outras pessoas são ignoradas.
 - No Mac, `nuvem.json` tem permissão 600. No app, o token fica só no localStorage do aparelho.
+
+## Obsidian na nuvem (Worker 2.1 + ponte do Mac 1.5)
+
+A pasta **Chefe Geral** do cofre (`~/Documents/Obsidian/Chefe Geral`) tem uma cópia privada na sua conta Cloudflare, no bucket R2 `chefe-geral-obsidian` (plano grátis: 10 GB). Só essa pasta, só notas `.md` de até 1 MB. Nada é público: toda rota pede o token do app.
+
+**Como sincroniza** (a ponte do Mac, a cada 2 minutos, com o Mac ligado e `"modo": "nuvem"`):
+
+| Situação | O que acontece |
+|---|---|
+| Nota nova ou alterada no Mac | sobe para a nuvem |
+| Nota nova ou alterada na nuvem (respostas, transcrições, notas pedidas pelo Telegram) | desce para o cofre |
+| Mudou dos dois lados | as duas versões ficam: a da nuvem vira `Nome (conflito nuvem AAAA-MM-DD HHhMM).md` ao lado |
+| Apagou de um lado | não propaga. Nada é apagado em lugar nenhum |
+| Nota com cara de segredo ou coordenada | não sobe (aparece no log da ponte) |
+
+O estado fica em `~/Library/Application Support/ChefeGeral/obsidian-nuvem-estado.json`. Para desligar só o espelho: `"obsidian_nuvem": false` no `relay.json` e reinicie a ponte.
+
+**Rotas novas do Worker** (Bearer do app): `GET /obsidian/list`, `GET /obsidian/get?caminho=`, `POST /obsidian/put {caminho, md, base_sha}`, `GET /obsidian/busca?q=`. O token de resposta (box) só cria nota nova. Os pedidos que chegam pela nuvem levam trechos dessas notas como contexto (`fonte: obsidian-nuvem`), mesmo com o Mac desligado.
+
+**No app** (cache `cg-v9`): Arquivo › Obsidian mostra as notas da nuvem e tem busca, no celular e no Mac.
+
+**Instalar ou atualizar**
+- Primeira vez: `./scripts/nuvem-instalar.sh` (já cria o bucket).
+- Já tem a nuvem: `./scripts/nuvem-atualizar.sh` cria o bucket se faltar, publica o Worker e troca a ponte para a 1.5 (backup `relay.py.bak-1.4`), **sem trocar tokens**.
+- Se aparecer erro de R2: ative em dash.cloudflare.com › R2 Object Storage (plano grátis; a Cloudflare pode pedir um cartão para ativar, sem cobrança dentro do limite) e rode de novo.
+
+**Testar**
+1. Mac ligado: crie `Chefe Geral/Inbox/teste nuvem.md` no Obsidian. Em até 2 min ela aparece no app do celular em Arquivo › Obsidian.
+2. Mac desligado: mande no Telegram uma pergunta sobre algo que está nessas notas. A resposta usa o trecho. Ao ligar o Mac, respostas e notas novas descem para o cofre.
+3. Conflito: edite a mesma nota no Mac e na nuvem antes de sincronizar; aparece o arquivo `(conflito ...)` ao lado.

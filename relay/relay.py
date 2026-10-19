@@ -30,6 +30,9 @@ Modo nuvem (1.4): relay.json "modo": "nuvem" (padrão "local"). O Telegram passa
 (GET /sync, Bearer do nuvem.json) o que é novo e grava no Obsidian em Chefe Geral/ (Pedidos, Transcricoes,
 Respostas, Reunioes). Áudio que a nuvem não transcreveu é baixado e transcrito aqui no VoiceStudio.
 A cada 6 h manda ao Worker um índice leve (só caminho e título das notas da pasta Chefe Geral).
+Obsidian na nuvem (1.5): no modo nuvem, a cada 2 min espelha a pasta Chefe Geral do cofre no R2 do Worker,
+nos dois sentidos (/obsidian/list|get|put). Conflito vira arquivo "(conflito ...)" ao lado; nada é apagado.
+Desligar só isso: relay.json "obsidian_nuvem": false.
 Voltar: scripts/nuvem-desfazer.sh (ou "modo": "local" e reiniciar).
 
 Segredos (nunca no repositório, nunca no log), em ~/Library/Application Support/ChefeGeral/:
@@ -41,7 +44,7 @@ import json, os, re, shutil, subprocess, sys, threading, time, urllib.error, url
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.4"
+VERSAO = "1.5"
 HOME = os.path.expanduser("~")
 DIR = os.environ.get("CHEFE_DIR", os.path.join(HOME, "Library", "Application Support", "ChefeGeral"))
 LOGDIR = os.environ.get("CHEFE_LOGDIR", os.path.join(HOME, "Library", "Logs", "ChefeGeral"))
@@ -940,6 +943,169 @@ def loop_nuvem():
         time.sleep(60)
 
 
+# ---------- Obsidian na nuvem (1.5): espelho bidirecional da pasta "Chefe Geral" no R2 ----------
+# Só a pasta Chefe Geral do cofre, só .md, até 1 MB. Estado em obsidian-nuvem-estado.json: {"base": {caminho: sha da última versão igual nos dois lados}}.
+#   local == nuvem          -> nada (atualiza a base)
+#   só local / local mudou  -> envia (PUT com base_sha; se a nuvem mudou no meio, ela guarda a nossa como "conflito" ao lado)
+#   só nuvem, nunca visto   -> baixa
+#   nuvem mudou, local não  -> baixa por cima (o local era igual à base)
+#   os dois mudaram         -> grava a versão da nuvem como "(conflito nuvem ...)" ao lado e envia a local
+#   apagado de um lado      -> não propaga (nunca apaga nada; não ressuscita o que você apagou no Mac, a não ser que a nuvem mude)
+# Pula notas que pareçam ter segredo ou coordenadas.
+OBS_ESTADO = os.path.join(DIR, "obsidian-nuvem-estado.json")
+OBS_MAX = 1024 * 1024
+OBS_INTERVALO = 120
+OBS_SEGREDO = re.compile(r"(crsr_|gh[opsu]_[A-Za-z0-9]{10,}|sk-[A-Za-z0-9]{20,}|\b[0-9]{6,}:[A-Za-z0-9_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY|\bBearer [A-Za-z0-9._-]{20,})")
+OBS_COORD = re.compile(r"-?\d{1,3}\.\d{4,}\s*[,;]\s*-?\d{1,3}\.\d{4,}")
+OBS_STATUS = {"ultima": None, "erro": None, "enviadas": 0, "baixadas": 0, "conflitos": 0, "puladas": []}
+
+
+def obs_sha(dados):
+    import hashlib
+    return hashlib.sha256(dados).hexdigest()
+
+
+def obs_conflito(rel, origem="nuvem"):
+    q = agora()
+    return rel[:-3] + f" (conflito {origem} {q[:10]} {q[11:16].replace(':', 'h')}).md"
+
+
+def obs_locais(raiz, pasta, cache):
+    """{rel: (sha, abs)} das .md da pasta Chefe Geral. cache: {rel: [mtime, tamanho, sha]} evita reler o que não mudou."""
+    out, base = {}, os.path.join(raiz, pasta)
+    for d, subs, arqs in os.walk(base):
+        subs[:] = [x for x in subs if not x.startswith(".")]
+        for a in arqs:
+            if not a.endswith(".md") or a.startswith(".") or PROIBIDO_NOME.search(a):
+                continue
+            p = os.path.join(d, a)
+            if os.path.islink(p):
+                continue
+            rel = os.path.relpath(p, raiz).replace(os.sep, "/")
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            if st.st_size > OBS_MAX:
+                continue
+            c = cache.get(rel)
+            if c and c[0] == st.st_mtime and c[1] == st.st_size:
+                out[rel] = (c[2], p)
+                continue
+            with open(p, "rb") as f:
+                dados = f.read()
+            txt = dados.decode("utf-8", "replace")
+            if OBS_SEGREDO.search(txt) or OBS_COORD.search(txt):
+                if rel not in OBS_STATUS["puladas"]:
+                    OBS_STATUS["puladas"] = (OBS_STATUS["puladas"] + [rel])[-20:]
+                    log(f"obsidian-nuvem: pulei {rel} (parece ter segredo ou coordenada)")
+                continue
+            cache[rel] = [st.st_mtime, st.st_size, obs_sha(dados)]
+            out[rel] = (cache[rel][2], p)
+    return out
+
+
+def obs_remotos():
+    out, cursor = {}, ""
+    while True:
+        j = nuvem_req("/obsidian/list?" + urllib.parse.urlencode({"cursor": cursor, "limite": 1000}), timeout=60)
+        for it in j.get("itens") or []:
+            out[it["caminho"]] = it["sha"]
+        cursor = j.get("cursor")
+        if not cursor:
+            return out
+
+
+def obs_escrever(raiz, pasta, rel, md):
+    alvo = _dentro(raiz, pasta, rel)
+    if not alvo:
+        raise RuntimeError("caminho fora da pasta: " + rel)
+    os.makedirs(os.path.dirname(alvo), exist_ok=True)
+    tmp = alvo + ".cg-tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        f.write(md)
+    os.replace(tmp, alvo)
+    return alvo
+
+
+def obs_baixar(rel):
+    j = nuvem_req("/obsidian/get?" + urllib.parse.urlencode({"caminho": rel}), timeout=60)
+    return j.get("md") or "", j.get("sha")
+
+
+def obs_enviar(rel, p, base):
+    with open(p, "r", encoding="utf-8", errors="replace") as f:
+        md = f.read()
+    return nuvem_req("/obsidian/put", {"caminho": rel, "md": md, "base_sha": base, "origem": "mac"}, timeout=60)
+
+
+def obs_sincronizar():
+    raiz, pasta = cofre()
+    if not raiz:
+        raise RuntimeError("cofre do Obsidian não configurado")
+    est = ler_json(OBS_ESTADO, {})
+    base, cache = est.setdefault("base", {}), est.setdefault("cache", {})
+    loc, rem = obs_locais(raiz, pasta, cache), obs_remotos()
+    env = baix = conf = 0
+    for rel in sorted(set(loc) | set(rem)):
+        try:
+            L, R, B = (loc.get(rel) or (None,))[0], rem.get(rel), base.get(rel)
+            if L and L == R:
+                base[rel] = L
+            elif L and (R is None or R == B):
+                r = obs_enviar(rel, loc[rel][1], R)
+                if r.get("conflito"):
+                    conf += 1
+                else:
+                    base[rel] = L
+                env += 1
+            elif R and L is None:
+                if B is None or R != B:
+                    md, sha = obs_baixar(rel)
+                    obs_escrever(raiz, pasta, rel, md)
+                    base[rel] = sha or R
+                    baix += 1
+            elif L and R and L == B:
+                md, sha = obs_baixar(rel)
+                obs_escrever(raiz, pasta, rel, md)
+                base[rel] = sha or R
+                cache.pop(rel, None)
+                baix += 1
+            elif L and R:
+                md, _ = obs_baixar(rel)
+                alt = obs_conflito(rel, "nuvem")
+                obs_escrever(raiz, pasta, alt, md)
+                r = obs_enviar(rel, loc[rel][1], R)
+                if not r.get("conflito"):
+                    base[rel] = L
+                conf += 1
+                log(f"obsidian-nuvem: conflito em {rel}; versão da nuvem salva em {alt}")
+        except Exception as e:
+            msg = re.sub(r"Bearer \S+", "Bearer <token>", str(e))[:200]
+            log(f"obsidian-nuvem {rel}: {msg}")
+    for rel in list(cache):
+        if rel not in loc:
+            cache.pop(rel, None)
+    gravar_json(OBS_ESTADO, est)
+    OBS_STATUS.update(ultima=agora(), erro=None, enviadas=OBS_STATUS["enviadas"] + env, baixadas=OBS_STATUS["baixadas"] + baix, conflitos=OBS_STATUS["conflitos"] + conf)
+    return env, baix, conf
+
+
+def loop_obsidian_nuvem():
+    time.sleep(20)
+    while True:
+        c = cfg()
+        if c.get("modo") == "nuvem" and c.get("obsidian_nuvem", True) and nuvem_cfg()[0]:
+            try:
+                e, b, k = obs_sincronizar()
+                if e or b or k:
+                    log(f"obsidian-nuvem: {e} enviada(s), {b} baixada(s), {k} conflito(s)")
+            except Exception as e:
+                OBS_STATUS["erro"] = re.sub(r"Bearer \S+", "Bearer <token>", str(e))[:200]
+                log(f"obsidian-nuvem: {OBS_STATUS['erro']}")
+        time.sleep(OBS_INTERVALO)
+
+
 # ---------- Arquivo (viewer, SOMENTE LEITURA) ----------
 # Lista branca de raízes em relay.json ("arquivos_raizes": [{"id","nome","caminho","ligada"}]). Sem config, usa o padrão.
 # Nunca serve segredos: a pasta de suporte da ponte, *.key, *token*, .env, chaves privadas, nem ~/Documents/nrf9151-ntn.
@@ -1223,7 +1389,7 @@ class Ponte(BaseHTTPRequestHandler):
         if u.path == "/health":
             c = cfg()
             return self.responder(200, {"ok": True, "ponte": "ligada", "versao": VERSAO, "hora": agora(), "modo": c.get("modo", "local"),
-                                        "nuvem": {"url_definida": bool(nuvem_cfg()[0]), "ultima_sync": ler_json(NUVEM_ESTADO, {}).get("ultima"), "erro": STATUS.get("nuvem_erro")},
+                                        "nuvem": {"url_definida": bool(nuvem_cfg()[0]), "ultima_sync": ler_json(NUVEM_ESTADO, {}).get("ultima"), "erro": STATUS.get("nuvem_erro"), "obsidian": OBS_STATUS},
                                         "webhook_configurado": bool(c["webhook_url"]), "chave_presente": bool(ler_segredo(KEY)),
                                         "telegram": {"token_presente": bool(ler_segredo(TOKEN)), "chat_id_definido": bool(c["chat_id"]),
                                                      "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"],
@@ -1302,6 +1468,7 @@ def main():
     threading.Thread(target=loop_stt, daemon=True).start()
     threading.Thread(target=loop_respostas, daemon=True).start()
     threading.Thread(target=loop_nuvem, daemon=True).start()
+    threading.Thread(target=loop_obsidian_nuvem, daemon=True).start()
     try:
         n = esvaziar_fila_memoria()
         if n:

@@ -41,7 +41,7 @@ export default async function abrir(el) {
 
   try { info = await json("/arquivos/raizes"); ligada = true; } catch (e) { ligada = false; info = {erro: e.code === "PONTE_OFF" ? null : e.message}; }
   $("#aest", el).innerHTML = !ligada && nuvemAtiva()
-    ? `<b>Pela ponte na nuvem.</b> Aqui aparecem pedidos, respostas, transcrições e reuniões guardados na sua conta Cloudflare, mesmo com o Mac desligado. Documentos e o cofre do Obsidian aparecem no Chrome do Mac.`
+    ? `<b>Pela ponte na nuvem.</b> Aqui aparecem pedidos, respostas, transcrições, reuniões e as notas do Obsidian (pasta Chefe Geral) guardados na sua conta Cloudflare, mesmo com o Mac desligado. PDFs e outros documentos aparecem no Chrome do Mac.`
     : ligada
     ? `Ponte do Mac ligada. Pastas liberadas (só leitura): ${info.raizes.map(r => `<b>${esc(r.nome)}</b>`).join(", ")}. Segredos e a pasta nrf9151-ntn nunca aparecem.`
     : emCelular() ? `<b>No celular, aqui aparece só o que está neste aparelho</b>: pedidos, notas de voz e reuniões feitos por aqui. Os documentos, transcrições e notas do Obsidian aparecem no Mac (abra este app no Chrome do Mac), e as respostas do Chefe Geral ficam no <a class="tg" href="https://t.me/${BOT()}" target="_blank" rel="noopener">@${BOT()}</a> e no Obsidian, em Chefe Geral/Respostas.`
@@ -81,6 +81,33 @@ export default async function abrir(el) {
     } catch (e) { return `<h2 class="sec">${titulo}</h2><div class="vazio">${esc(e.message)}</div>`; }
   }
 
+  // Obsidian na nuvem: espelho da pasta Chefe Geral no R2 (lido no celular e com o Mac desligado). Só leitura aqui.
+  async function obsNuvem(q = "") {
+    if (!nuvemAtiva()) return "";
+    const {nuvemApi} = await import("../engines/grok-webhook.js");
+    const form = `<form id="onf" class="row"><input id="onq" placeholder="Buscar nas notas da nuvem" value="${esc(q)}" style="flex:1"><button class="ghost">Buscar</button></form>`;
+    try {
+      const itens = q ? (await nuvemApi("/obsidian/busca?q=" + encodeURIComponent(q))).resultados || []
+        : ((await nuvemApi("/obsidian/list?limite=2000")).itens || []).sort((a, b) => (b.atualizado || "").localeCompare(a.atualizado || "")).slice(0, 80);
+      return `<h2 class="sec">Obsidian na nuvem</h2><p class="small muted">Cópia da pasta Chefe Geral, sincronizada com o Obsidian do Mac sempre que ele está ligado.</p>${form}` +
+        (itens.length ? itens.map(i => `<div class="item" data-obsn="${esc(i.caminho)}"><div class="item-h"><span>${/conflito/.test(i.caminho) ? "⚠️" : "📝"}</span><div class="item-t"><b>${esc(i.caminho.split("/").pop().replace(/\.md$/, ""))}</b>${i.trecho ? `<div class="small">${esc(i.trecho)}</div>` : ""}
+          <div class="item-m">${esc(i.caminho.split("/").slice(1, -1).join("/") || "Chefe Geral")} · ${quando(i.atualizado)}${i.origem ? " · " + esc(i.origem) : ""}</div></div></div></div>`).join("")
+          : `<div class="vazio">${q ? "Nada encontrado." : "Nenhuma nota na nuvem ainda. Elas sobem quando a ponte do Mac (1.5) estiver ligada."}</div>`);
+    } catch (e) { return `<h2 class="sec">Obsidian na nuvem</h2>${form}<div class="vazio">${esc(e.message)}</div>`; }
+  }
+  async function verNuvem(cam) {
+    view.hidden = false; view.innerHTML = `<p class="muted">Abrindo...</p>`; view.scrollIntoView({behavior: "smooth"});
+    try {
+      const {nuvemApi} = await import("../engines/grok-webhook.js");
+      const j = await nuvemApi("/obsidian/get?caminho=" + encodeURIComponent(cam));
+      if (!j.ok) throw new Error(j.erro || "nota não encontrada");
+      view.innerHTML = `<div class="row"><b style="flex:1">${esc(cam.split("/").pop())}</b><button class="ghost" data-fechar>Fechar</button></div>
+        <div class="small muted" style="word-break:break-all;margin-top:6px">☁️ ${esc(cam)} · ${quando(j.atualizado)}</div>
+        <div class="acoes"><a class="ghost" href="obsidian://open?vault=${encodeURIComponent(info?.obsidian?.nome || "Obsidian")}&file=${encodeURIComponent(cam.replace(/\.md$/, ""))}">Abrir no Obsidian</a></div>
+        <div class="md" style="margin-top:10px">${md(j.md || "")}</div>`;
+    } catch (e) { view.innerHTML = `<div class="vazio">${esc(e.message)}</div>`; }
+  }
+
   const pasta = info?.obsidian?.pasta || "Chefe Geral";
   async function prefixos(lst, n = 60) {
     const res = await Promise.all(lst.map(p => json("/arquivos/recentes", {n, raiz: "obsidian", prefixo: pasta + "/" + p}).then(j => j.itens).catch(() => [])));
@@ -100,8 +127,9 @@ export default async function abrir(el) {
     cont.innerHTML = `<p class="muted">Carregando...</p>`;
     try {
       if (!ligada && nuvemAtiva()) {
-        cont.innerHTML = aba === "documentos" || aba === "obsidian" || aba === "busca"
-          ? `<div class="vazio">Documentos e o cofre do Obsidian ficam no Mac: esta aba aparece no Chrome do Mac com a ponte ligada. Aqui embaixo está o que a nuvem guarda.</div>` + await nuvemSec(["respostas", "pedidos", "transcricoes", "reunioes"])
+        cont.innerHTML = aba === "obsidian" || aba === "busca" ? await obsNuvem()
+          : aba === "documentos"
+          ? `<div class="vazio">PDFs, Word e imagens ficam no Mac: esta aba aparece no Chrome do Mac com a ponte ligada. As notas do Obsidian estão na aba Obsidian, pela nuvem.</div>` + await nuvemSec(["respostas", "pedidos", "transcricoes", "reunioes"])
           : await nuvemSec(aba === "mensagens" ? ["pedidos", "respostas"] : aba === "transcricoes" ? ["transcricoes", "reunioes"] : ["respostas", "pedidos", "transcricoes", "reunioes"]) + await local(aba);
         return;
       }
@@ -121,7 +149,7 @@ export default async function abrir(el) {
       }
       else if (aba === "mensagens") cont.innerHTML = `<p class="small muted">Pedidos e respostas gravados no Obsidian em ${esc(pasta)}/Pedidos e ${esc(pasta)}/Respostas.</p>` + lista(await prefixos(["Pedidos", "Respostas", "Mensagens"])) + await nuvemSec(["pedidos", "respostas"], "Na nuvem (ainda indo para o Obsidian)") + await local("mensagens");
       else if (aba === "transcricoes") cont.innerHTML = `<p class="small muted">Notas de voz, reuniões e transcrições feitas no Mac.</p>` + lista(await prefixos(["Notas de voz", "Reunioes", "Transcricoes"])) + await local("transcricoes");
-      else if (aba === "obsidian") await mostrarPasta("obsidian", "");
+      else if (aba === "obsidian") { await mostrarPasta("obsidian", ""); if (nuvemAtiva()) cont.insertAdjacentHTML("beforeend", await obsNuvem()); }
       else if (aba === "busca") {
         cont.innerHTML = `<form id="abf" class="row"><input id="abq" placeholder="Buscar por nome ou texto (md e txt)" style="flex:1"><button class="ghost">Buscar</button></form><div id="abr"></div>`;
         $("#abf", el).onsubmit = async e => { e.preventDefault(); const q = $("#abq", el).value.trim(); if (!q) return;
@@ -159,9 +187,19 @@ export default async function abrir(el) {
     } catch (e) { view.innerHTML = `<div class="vazio">${esc(e.code === "PONTE_OFF" ? "Ponte do Mac fora de alcance." : e.message)}</div>${caminhoBox(it)}`; }
   }
 
+  el.addEventListener("submit", async e => {
+    if (e.target.id !== "onf") return;
+    e.preventDefault(); const q = $("#onq", el).value.trim();
+    const sec = document.createElement("div"); sec.innerHTML = `<p class="muted">Buscando...</p>`;
+    const alvo = e.target.closest("#acont"); const h = [...alvo.querySelectorAll("h2.sec")].find(x => x.textContent === "Obsidian na nuvem");
+    const html = await obsNuvem(q);
+    if (h) { while (h.nextSibling) h.nextSibling.remove(); h.insertAdjacentHTML("afterend", html.replace(/^<h2 class="sec">Obsidian na nuvem<\/h2>/, "")); } else alvo.innerHTML = html;
+  });
   el.addEventListener("click", async e => {
-    const t = e.target.closest("[data-aba],[data-nav],[data-copiar],[data-fechar],[data-wiki],.item[data-raiz]");
+    const t = e.target.closest("[data-aba],[data-nav],[data-copiar],[data-fechar],[data-wiki],[data-obsn],.item[data-raiz]");
     if (!t) return;
+    if (t.dataset.obsn) return verNuvem(t.dataset.obsn);
+    if (t.dataset.wiki && !ligada) { e.preventDefault(); return verNuvem("Chefe Geral/" + t.dataset.wiki.replace(/^Chefe Geral\//, "") + ".md"); }
     if (t.dataset.aba) { aba = t.dataset.aba; return render(); }
     if (t.dataset.copiar !== undefined) { e.preventDefault(); try { await navigator.clipboard.writeText(t.dataset.copiar); aviso("Caminho copiado"); } catch { aviso("Não consegui copiar", true); } return; }
     if (t.dataset.fechar !== undefined) { view.hidden = true; return; }

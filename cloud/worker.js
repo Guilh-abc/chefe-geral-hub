@@ -10,7 +10,12 @@
 //     GET  /sync?depois=<seq>        tudo o que é novo (a ponte do Mac grava no Obsidian)
 //     POST /pendente/ok              {id, texto} a ponte do Mac transcreveu um áudio que a nuvem não conseguiu
 //     POST /indice                   {notas:[{arquivo, titulo, tags}]} índice leve (só títulos) para obsidian_context
+//     GET  /obsidian/list?prefixo=&depois=<data>&cursor=   catálogo das notas espelhadas {caminho, sha, tamanho, atualizado, origem}
+//     GET  /obsidian/get?caminho=Chefe Geral/...md          {md, sha, ...}
+//     POST /obsidian/put             {caminho, md, base_sha, origem:"mac"|"nuvem"}; base_sha diferente da nuvem -> grava "(conflito ...)" ao lado
+//     GET  /obsidian/busca?q=        busca simples por texto nas notas espelhadas, com trechos
 //   Com Authorization: Bearer RESPOSTA_TOKEN (ou APP_TOKEN):
+//     POST /obsidian/put             (só RESPOSTA_TOKEN) só nota nova; caminho existente vira conflito ao lado
 //     POST /resposta                 {pedido_id, titulo, texto, message_id} resposta do Chefe Geral (box)
 // CORS: só ALLOWED_ORIGIN (https://guilh-abc.github.io). Chamadas sem Origin (Mac, box) dependem só do token.
 
@@ -80,9 +85,13 @@ export function pontuar(texto, notas, max = 3) {
     return {arquivo: n.arquivo, score: pal.filter(p => alvo.includes(p)).length, trecho: n.titulo, fonte: "indice-nuvem"};
   }).filter(n => n.score > 0).sort((a, b) => b.score - a.score).slice(0, max);
 }
+// Contexto: trechos das notas espelhadas (Obsidian na nuvem) + índice leve de títulos. Funciona com o Mac desligado.
 async function contexto(env, texto) {
-  try { const r = await (await db(env)).prepare("SELECT arquivo, titulo, tags FROM indice LIMIT 5000").all(); return pontuar(texto, r.results || []); }
-  catch { return []; }
+  let obs = [], idx = [];
+  try { obs = (await obsBusca(env, texto, 3)).filter(n => n.score > 0).map(n => ({arquivo: n.caminho, score: n.score, trecho: n.trecho, fonte: "obsidian-nuvem"})); } catch {}
+  try { const r = await (await db(env)).prepare("SELECT arquivo, titulo, tags FROM indice LIMIT 5000").all(); idx = pontuar(texto, r.results || []); } catch {}
+  const vistos = new Set(obs.map(n => n.arquivo));
+  return [...obs, ...idx.filter(n => !vistos.has(n.arquivo))].slice(0, 5);
 }
 
 // ---------- Saída ----------
@@ -198,6 +207,87 @@ export async function tratarTelegram(env, u) {
   return entregar(env, {id, tipo, texto, modulo, canal: "telegram", anexos, origem, reply: m.message_id});
 }
 
+// ---------- Obsidian na nuvem (espelho da pasta "Chefe Geral" do cofre) ----------
+// Conteúdo no R2 (binding OBS, bucket chefe-geral-obsidian); catálogo e texto de busca no D1 (tabela obs).
+// Sem R2 configurado, o texto fica só no D1 (mesmo comportamento para o app e a ponte). Nunca apaga nada.
+const OBS_PASTA = "Chefe Geral";
+const OBS_MAX = 1024 * 1024;   // 1 MB por nota
+const semAcento = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+export function caminhoOk(c) {
+  c = String(c || "").replace(/\\/g, "/");
+  const p = c.split("/");
+  return c.length <= 400 && p[0] === OBS_PASTA && p.length > 1 && c.endsWith(".md") && !p.some(x => !x || x === "." || x === ".." || x.startsWith("."));
+}
+export async function sha256(txt) {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(txt));
+  return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+export function caminhoConflito(c, origem = "nuvem", d = Date.now()) {
+  const q = agora(d);
+  return c.replace(/\.md$/, ` (conflito ${origem} ${q.slice(0, 10)} ${q.slice(11, 16).replace(":", "h")}).md`);
+}
+async function obsDb(env) {
+  const d = await db(env);
+  await d.prepare("CREATE TABLE IF NOT EXISTS obs (caminho TEXT PRIMARY KEY, sha TEXT NOT NULL, tamanho INTEGER, atualizado TEXT, origem TEXT, texto TEXT, busca TEXT)").run();
+  return d;
+}
+export async function obsInfo(env, c) { return (await obsDb(env)).prepare("SELECT caminho, sha, tamanho, atualizado, origem FROM obs WHERE caminho = ?").bind(c).first(); }
+async function obsGravar(env, c, md, origem) {
+  const sha = await sha256(md), q = agora();
+  if (env.OBS) await env.OBS.put(c, md, {httpMetadata: {contentType: "text/markdown; charset=utf-8"}, customMetadata: {sha, origem, atualizado: q}});
+  await (await obsDb(env)).prepare("INSERT OR REPLACE INTO obs (caminho, sha, tamanho, atualizado, origem, texto, busca) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(c, sha, md.length, q, origem, env.OBS ? md.slice(0, 100000) : md, semAcento(c + "\n" + md).slice(0, 100000)).run();
+  return {caminho: c, sha, atualizado: q};
+}
+// Grava sem nunca perder versão: se base_sha não bate com a versão da nuvem, a nova vai para um arquivo "conflito" ao lado.
+export async function obsPut(env, {caminho, md, base_sha = null, origem = "nuvem", so_novo = false}) {
+  if (!caminhoOk(caminho)) return {ok: false, status: 400, erro: "caminho inválido (só .md dentro de Chefe Geral/)"};
+  if (typeof md !== "string") return {ok: false, status: 400, erro: "falta md"};
+  if (md.length > OBS_MAX) return {ok: false, status: 413, erro: "nota acima de 1 MB"};
+  const atual = await obsInfo(env, caminho), sha = await sha256(md);
+  if (atual && atual.sha === sha) return {ok: true, igual: true, caminho, sha};
+  if (atual && (so_novo || atual.sha !== base_sha)) {
+    let alt = caminhoConflito(caminho, origem);
+    if (await obsInfo(env, alt)) alt = alt.replace(/\)\.md$/, ` ${sha.slice(0, 6)}).md`);
+    return {ok: true, conflito: true, original: caminho, ...(await obsGravar(env, alt, md, origem))};
+  }
+  return {ok: true, ...(await obsGravar(env, caminho, md, origem))};
+}
+export async function obsGet(env, c) {
+  if (!caminhoOk(c)) return null;
+  const info = await obsInfo(env, c);
+  if (!info) return null;
+  let md = null;
+  if (env.OBS) { const o = await env.OBS.get(c); if (o) md = await o.text(); }
+  if (md === null) md = (await env.DB.prepare("SELECT texto FROM obs WHERE caminho = ?").bind(c).first())?.texto ?? "";
+  return {...info, md};
+}
+export async function obsListar(env, {prefixo = OBS_PASTA + "/", depois = "", cursor = "", limite = 1000} = {}) {
+  const lim = Math.max(1, Math.min(Number(limite) || 1000, 2000));
+  const r = await (await obsDb(env)).prepare("SELECT caminho, sha, tamanho, atualizado, origem FROM obs WHERE caminho LIKE ? AND caminho > ? AND (atualizado > ? OR ? = '') ORDER BY caminho LIMIT ?")
+    .bind(String(prefixo).replace(/[%_]/g, "") + "%", cursor || "", depois || "", depois || "", lim).all();
+  const itens = r.results || [];
+  return {itens, cursor: itens.length === lim ? itens.at(-1).caminho : null};
+}
+export function trecho(texto, termos, n = 280) {
+  const t = String(texto || "").replace(/^---\n[\s\S]*?\n---\n/, ""), b = semAcento(t);
+  let i = -1; for (const p of termos) { i = b.indexOf(p); if (i >= 0) break; }
+  i = Math.max(0, i - 80);
+  return (i ? "…" : "") + t.slice(i, i + n).replace(/\s+/g, " ").trim() + (t.length > i + n ? "…" : "");
+}
+export async function obsBusca(env, q, max = 20) {
+  const termos = [...new Set(semAcento(q).match(/[a-z0-9]{3,}/g) || [])].slice(0, 6);
+  if (!termos.length) return [];
+  const d = await obsDb(env);
+  const r = await d.prepare(`SELECT caminho, atualizado, origem, texto FROM obs WHERE ${termos.map(() => "busca LIKE ?").join(" OR ")} LIMIT 300`)
+    .bind(...termos.map(t => "%" + t + "%")).all();
+  return (r.results || []).map(x => {
+    const b = semAcento(x.caminho + "\n" + x.texto);
+    return {caminho: x.caminho, atualizado: x.atualizado, origem: x.origem, score: termos.filter(t => b.includes(t)).length + termos.filter(t => semAcento(x.caminho).includes(t)).length,
+      trecho: trecho(x.texto, termos)};
+  }).sort((a, b) => b.score - a.score || (b.atualizado || "").localeCompare(a.atualizado || "")).slice(0, max);
+}
+
 // ---------- HTTP ----------
 export default {
   async fetch(req, env, ctx) {
@@ -211,8 +301,8 @@ export default {
       return json({ok: true});
     }
     if (h === null) return json({erro: "origem não permitida"}, 403);
-    if (rota === "/health") return json({ok: true, ponte: "nuvem", versao: "2.0", hora: agora(), webhook_configurado: !!env.WEBHOOK_URL, chave_presente: !!env.WEBHOOK_KEY,
-      telegram: !!env.TELEGRAM_TOKEN, chat_id: !!env.CHAT_ID, banco: !!env.DB, transcricao: env.AI ? "Workers AI Whisper" : null}, 200, h);
+    if (rota === "/health") return json({ok: true, ponte: "nuvem", versao: "2.1", hora: agora(), webhook_configurado: !!env.WEBHOOK_URL, chave_presente: !!env.WEBHOOK_KEY,
+      telegram: !!env.TELEGRAM_TOKEN, chat_id: !!env.CHAT_ID, banco: !!env.DB, transcricao: env.AI ? "Workers AI Whisper" : null, obsidian: env.OBS ? "R2" : "D1"}, 200, h);
     const tok = bearer(req), app = igual(tok, env.APP_TOKEN || ""), resp = app || igual(tok, env.RESPOSTA_TOKEN || "");
     if (rota === "/resposta" && req.method === "POST") {
       if (!resp) return json({erro: "token ausente ou errado"}, 401, h);
@@ -221,6 +311,12 @@ export default {
       const pid = String(b.pedido_id || "sem-id").slice(0, 64);
       const novo = await guardar(env, {id: "resp-" + pid + "-" + (b.message_id || Date.now()), tipo: "resposta", titulo: b.titulo || "Resposta " + pid, texto: b.texto, meta: {pedido_id: pid, message_id: b.message_id || null}});
       return json({ok: true, novo}, 200, h);
+    }
+    if (rota === "/obsidian/put" && req.method === "POST" && resp && !app) {
+      // Token de resposta (box): só cria nota nova; se o caminho já existe, vira arquivo "conflito" ao lado.
+      const b = await req.json().catch(() => null);
+      const r = await obsPut(env, {caminho: b?.caminho, md: b?.md, origem: "box", so_novo: true});
+      return json(r, r.status || 200, h);
     }
     if (!app) return json({erro: "token do app ausente ou errado"}, 401, h);
     try {
@@ -250,6 +346,20 @@ export default {
         if (!b.id) return json({erro: "falta id"}, 400, h);
         return json({ok: await atualizar(env, b.id, {tipo: "pendente_ok", texto: b.texto || "", meta: {resolvido: agora()}})}, 200, h);
       }
+      if (rota === "/obsidian/list" && req.method === "GET") {
+        const p = url.searchParams;
+        return json({ok: true, armazenamento: env.OBS ? "R2" : "D1", ...(await obsListar(env, {prefixo: p.get("prefixo") || undefined, depois: p.get("depois") || "", cursor: p.get("cursor") || "", limite: p.get("limite")}))}, 200, h);
+      }
+      if (rota === "/obsidian/get" && req.method === "GET") {
+        const n = await obsGet(env, url.searchParams.get("caminho") || "");
+        return n ? json({ok: true, ...n}, 200, h) : json({ok: false, erro: "nota não encontrada"}, 404, h);
+      }
+      if (rota === "/obsidian/put" && req.method === "POST") {
+        const b = await req.json().catch(() => null);
+        const r = await obsPut(env, {caminho: b?.caminho, md: b?.md, base_sha: b?.base_sha ?? null, origem: b?.origem === "mac" ? "mac" : "nuvem"});
+        return json(r, r.status || 200, h);
+      }
+      if (rota === "/obsidian/busca" && req.method === "GET") return json({ok: true, resultados: await obsBusca(env, url.searchParams.get("q") || "", 30)}, 200, h);
       if (rota === "/indice" && req.method === "POST") {
         const b = await req.json().catch(() => ({}));
         const notas = (Array.isArray(b.notas) ? b.notas : []).slice(0, 5000).filter(n => n.arquivo);

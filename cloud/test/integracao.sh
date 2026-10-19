@@ -30,4 +30,19 @@ ok "origem nuvem-telegram e nuvem-app" 'echo "$L" | grep -q chefe-geral-nuvem-te
 ok "contexto do índice no payload" 'echo "$L" | grep -q "indice-nuvem"'
 ok "ack no Telegram" 'echo "$L" | grep -q "Recebido. A resposta"'
 ok "pendente/ok" 'curl -s -X POST -H "Authorization: Bearer app" -d "{\"id\":\"pend-tg13\",\"texto\":\"oi\"}" $B/pendente/ok | grep -q "\"ok\":true"'
+O='-H Authorization:Bearer\ app'
+put(){ curl -s -X POST -H "Authorization: Bearer ${2:-app}" -H 'Content-Type: application/json' -d "$1" $B/obsidian/put; }
+ok "obsidian put sem token 401" '[ "$(curl -s -o /dev/null -w %{http_code} -X POST -d "{}" $B/obsidian/put)" = 401 ]'
+ok "obsidian caminho fora da pasta 400" 'put "{\"caminho\":\"Outra/x.md\",\"md\":\"oi\"}" | grep -q "caminho inválido"'
+ok "obsidian put do mac" 'put "{\"caminho\":\"Chefe Geral/Infra/Teste.md\",\"md\":\"# Teste\\nSensify NTN satelite\",\"origem\":\"mac\"}" | grep -q "\"sha\""'
+S=$(curl -s -H "Authorization: Bearer app" "$B/obsidian/get?caminho=Chefe%20Geral/Infra/Teste.md" | python3 -c 'import json,sys;print(json.load(sys.stdin)["sha"])')
+ok "obsidian get" '[ ${#S} = 64 ]'
+ok "obsidian put com base certa atualiza" 'put "{\"caminho\":\"Chefe Geral/Infra/Teste.md\",\"md\":\"# Teste v2 Sensify\",\"base_sha\":\"$S\",\"origem\":\"mac\"}" | grep -vq conflito'
+ok "obsidian base velha vira conflito" 'put "{\"caminho\":\"Chefe Geral/Infra/Teste.md\",\"md\":\"# outra\",\"base_sha\":\"$S\",\"origem\":\"mac\"}" | grep -q "conflito mac"'
+ok "obsidian list" '[ "$(curl -s -H "Authorization: Bearer app" $B/obsidian/list | grep -o "\"caminho\"" | wc -l)" = 2 ]'
+ok "obsidian busca sem acento" 'curl -s -H "Authorization: Bearer app" "$B/obsidian/busca?q=sensify" | grep -q "Teste.md"'
+ok "box só cria nota nova" 'put "{\"caminho\":\"Chefe Geral/Respostas/Box.md\",\"md\":\"oi\"}" resp | grep -q "\"sha\"" && put "{\"caminho\":\"Chefe Geral/Respostas/Box.md\",\"md\":\"troca\"}" resp | grep -q conflito'
+ok "token da box não lista notas" '[ "$(curl -s -o /dev/null -w %{http_code} -H "Authorization: Bearer resp" $B/obsidian/list)" = 401 ]'
+curl -s -X POST -H "Authorization: Bearer app" -d '{"tipo":"pedido","pedido":{"id":"app3","texto":"como está a Sensify?"}}' $B/pedido >/dev/null
+ok "contexto com trecho do obsidian na nuvem" 'curl -s localhost:9911/log | grep -q "obsidian-nuvem"'
 exit $F
