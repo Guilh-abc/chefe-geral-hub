@@ -139,3 +139,9 @@ Módulo **Arquivo** no app: Recentes, Documentos, Mensagens, Transcrições, Obs
 A ponte serve só as pastas da lista branca em `relay.json`, chave `arquivos_raizes` (padrão: cofre Obsidian, ~/Documents/CV, ~/Documents/ChefeGeral, ~/Documents/Maria Alice; ~/Downloads desligado):
 `"arquivos_raizes": [{"id": "downloads", "nome": "Downloads", "caminho": "~/Downloads", "ligada": true}, ...]`
 Nunca serve ~/Library (inclui os segredos da ponte), ~/.ssh, ~/Documents/nrf9151-ntn, arquivos ocultos, *.key, *token*, .env, chaves privadas. Exige o cabeçalho Origin do app.
+
+## Registrar uma criação no Obsidian
+```
+./scripts/registrar-criacao.sh doc "Título" "~/Documents/Pasta/arquivo" "Chefe Geral/Projetos/Nome"
+```
+Acrescenta uma linha em `Chefe Geral/Registro de criacoes.md` (só acrescenta; recusa texto que pareça segredo ou coordenada). Convenção completa: `Chefe Geral/Como registrar.md` no cofre.
