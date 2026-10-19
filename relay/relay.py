@@ -19,6 +19,12 @@ Se o VoiceStudio estiver fechado, o áudio do Telegram fica em audios/ e a ponte
 Telegram (opcional): faz long polling de getUpdates do SEU bot, aceita só o seu chat_id,
 transforma texto, nota de voz, áudio e documento em pedido e responde "Recebido".
 
+Respostas do Chefe Geral no Obsidian (1.3): o bot não recebe as próprias mensagens no getUpdates.
+A box manda cada resposta (cg-telegram-responder) com o botão "Guardando no Obsidian" e o cabeçalho
+"Chefe Geral, resposta ao pedido <id>". A ponte sonda, só no SEU chat, os message_id que ela não viu
+(lacunas e os próximos números) com editMessageReplyMarkup: a API devolve a mensagem inteira, a ponte
+troca o botão para "No Obsidian" e grava em "Chefe Geral/Respostas". Nada é exposto à internet.
+
 Segredos (nunca no repositório, nunca no log), em ~/Library/Application Support/ChefeGeral/:
   webhook.key      valor completo do cabeçalho Authorization (ex.: "Bearer ..."), chmod 600
   telegram.token   token do BotFather, chmod 600
@@ -28,7 +34,7 @@ import json, os, re, shutil, subprocess, sys, threading, time, urllib.error, url
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1.2"
+VERSAO = "1.3"
 HOME = os.path.expanduser("~")
 DIR = os.environ.get("CHEFE_DIR", os.path.join(HOME, "Library", "Application Support", "ChefeGeral"))
 LOGDIR = os.environ.get("CHEFE_LOGDIR", os.path.join(HOME, "Library", "Logs", "ChefeGeral"))
@@ -55,6 +61,13 @@ BRT = timezone(timedelta(hours=-3))
 ORIGENS = ("https://guilh-abc.github.io",)
 LOCAL_ORIGEM = re.compile(r"^http://(localhost|127\.0\.0\.1)(:\d+)?$")
 LOCK = threading.Lock()
+ENVIO_LOCK = threading.Lock()   # a sondagem não roda enquanto a ponte está mandando mensagem
+RESP_ESTADO = os.path.join(DIR, "respostas-estado.json")
+RESP_LOCK = threading.Lock()
+RESP_PREFIXO = "Chefe Geral, resposta ao pedido "
+HUB_ARQUIVO = "https://guilh-abc.github.io/chefe-geral-hub/#/arquivo"
+BOTAO_PENDENTE = json.dumps({"inline_keyboard": [[{"text": "Guardando no Obsidian…", "url": HUB_ARQUIVO}]]}, ensure_ascii=False)
+BOTAO_OK = json.dumps({"inline_keyboard": [[{"text": "No Obsidian ✓", "url": HUB_ARQUIVO}]]}, ensure_ascii=False)
 STATUS = {"telegram_ultimo_poll": None, "telegram_erro": None, "inicio": None}
 
 
@@ -398,11 +411,21 @@ def tg(metodo, params=None, timeout=60):
         raise RuntimeError("sem token")
     dados = urllib.parse.urlencode(params or {}).encode()
     req = urllib.request.Request(f"https://api.telegram.org/bot{token}/{metodo}", data=dados)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        j = json.loads(r.read().decode("utf-8"))
-    if not j.get("ok"):
-        raise RuntimeError(j.get("description", "erro"))
-    return j["result"]
+    envio = metodo.startswith("send") or metodo in ("copyMessage", "forwardMessage")
+    if envio:
+        ENVIO_LOCK.acquire()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            j = json.loads(r.read().decode("utf-8"))
+        if not j.get("ok"):
+            raise RuntimeError(j.get("description", "erro"))
+        res = j["result"]
+        if envio and isinstance(res, dict) and res.get("message_id"):
+            resp_visto(res["message_id"], meu=True)
+        return res
+    finally:
+        if envio:
+            ENVIO_LOCK.release()
 
 
 def tg_responder(texto):
@@ -647,6 +670,8 @@ def loop_telegram():
                 m = u.get("message") or {}
                 if str((m.get("chat") or {}).get("id")) != str(c["chat_id"]) or str((m.get("from") or {}).get("id")) != str(c["chat_id"]):
                     continue  # ignora qualquer outra pessoa ou grupo
+                if m.get("message_id"):
+                    resp_visto(m["message_id"])
                 try:
                     tratar_mensagem(m)
                 except Exception as e:
@@ -655,6 +680,143 @@ def loop_telegram():
             STATUS["telegram_erro"] = str(e)[:200]
             log(f"telegram poll: {e}")
             time.sleep(10)
+
+
+# ---------- Respostas do Chefe Geral (box -> Telegram -> Obsidian) ----------
+def resp_estado():
+    e = ler_json(RESP_ESTADO, {})
+    e.setdefault("max", None)
+    e.setdefault("sondar", {})
+    e.setdefault("meus", [])
+    e.setdefault("capturadas", 0)
+    return e
+
+
+def resp_visto(mid, meu=False):
+    """Registra um message_id do seu chat. Os números pulados viram candidatos a resposta da box."""
+    try:
+        mid = int(mid)
+        with RESP_LOCK:
+            e = resp_estado()
+            if meu:
+                e["meus"] = (e["meus"] + [mid])[-300:]
+                e["sondar"].pop(str(mid), None)
+            if e["max"] is None:
+                e["max"] = mid
+            elif mid > e["max"]:
+                for i in range(e["max"] + 1, mid):
+                    if len(e["sondar"]) < 300:
+                        e["sondar"].setdefault(str(i), 0)
+                e["max"] = mid
+            gravar_json(RESP_ESTADO, e)
+    except Exception as ex:
+        log(f"respostas: visto falhou: {ex}")
+
+
+def tg_bruto(metodo, params, timeout=30):
+    """Como tg(), mas devolve (ok, resultado_ou_descricao, erro_da_api). Nunca grava o token."""
+    token = ler_segredo(TOKEN)
+    if not token:
+        return False, "sem token", False
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/{metodo}", data=urllib.parse.urlencode(params).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            j = json.loads(r.read().decode("utf-8"))
+        return bool(j.get("ok")), j.get("result") if j.get("ok") else j.get("description", ""), not j.get("ok")
+    except urllib.error.HTTPError as ex:
+        try:
+            d = json.loads(ex.read().decode("utf-8")).get("description", "")
+        except Exception:
+            d = f"HTTP {ex.code}"
+        return False, d, ex.code == 400
+    except Exception as ex:
+        return False, str(ex)[:200], False
+
+
+def ler_documento(file_id):
+    token = ler_segredo(TOKEN)
+    f = tg("getFile", {"file_id": file_id}, timeout=30)
+    if int(f.get("file_size") or 0) > 2_000_000:
+        raise RuntimeError("documento grande demais")
+    with urllib.request.urlopen(f"https://api.telegram.org/file/bot{token}/{f['file_path']}", timeout=60) as r:
+        return r.read(2_000_001).decode("utf-8", "replace")
+
+
+def resp_capturar(chat_id, mid):
+    """Sonda um message_id. Devolve 'capturada', 'outra', 'nao_editavel', 'ja_ok' ou 'transitorio'."""
+    ok, res, api = tg_bruto("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": mid, "reply_markup": BOTAO_OK})
+    if not ok:
+        if not api:
+            return "transitorio"
+        return "ja_ok" if "not modified" in str(res).lower() else "nao_editavel"
+    m = res if isinstance(res, dict) else {}
+    texto = m.get("text") or m.get("caption") or ""
+    if not ((m.get("from") or {}).get("is_bot") and texto.startswith(RESP_PREFIXO)):
+        tg_bruto("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": mid})  # desfaz: não era resposta da box
+        return "outra"
+    try:
+        cab, _, resto = texto.partition("\n")
+        if m.get("document"):
+            conteudo = ler_documento(m["document"]["file_id"])
+            if conteudo.startswith(RESP_PREFIXO):
+                conteudo = conteudo.partition("\n")[2]
+            resto = conteudo
+        mm = re.match(r"^Chefe Geral, resposta ao pedido (\S+?):?(?: (.*))?$", cab.strip())
+        pid = (mm.group(1) if mm else "sem-id").strip()
+        titulo = ((mm.group(2) if mm else "") or "").strip()
+        quando = datetime.fromtimestamp(int(m.get("date") or time.time()), BRT).isoformat(timespec="seconds")
+        corpo = f"Pedido: {pid}\nEntregue no Telegram: {quando} (message_id {mid})\n\n{resto.strip()}"
+        n = montar_nota("respostas", f"Resposta {pid} {titulo}".strip(), corpo, f"tgresp-{mid}", origem="telegram-bot", tags=("resposta", "telegram"))
+        guardar_seguro(n)
+        with RESP_LOCK:
+            e = resp_estado()
+            e["capturadas"] += 1
+            e["ultima"] = {"message_id": mid, "pedido": pid, "quando": agora()}
+            gravar_json(RESP_ESTADO, e)
+        log(f"respostas: pedido {pid} (message_id {mid}) gravado no Obsidian")
+        return "capturada"
+    except Exception as ex:
+        log(f"respostas: falha ao gravar message_id {mid}: {ex}")
+        tg_bruto("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": mid, "reply_markup": BOTAO_PENDENTE})
+        return "transitorio"
+
+
+def loop_respostas():
+    time.sleep(15)
+    while True:
+        try:
+            c = cfg()
+            if ler_segredo(TOKEN) and c["chat_id"]:
+                with ENVIO_LOCK:
+                    with RESP_LOCK:
+                        e = resp_estado()
+                    if e["max"] is not None:
+                        meus = set(e["meus"])
+                        alvos = sorted(int(i) for i in e["sondar"]) + list(range(e["max"] + 1, e["max"] + 6))
+                        for mid in alvos:
+                            if mid in meus:
+                                continue
+                            r = resp_capturar(c["chat_id"], mid)
+                            with RESP_LOCK:
+                                e2 = resp_estado()
+                                k = str(mid)
+                                if r in ("capturada", "outra", "ja_ok"):
+                                    e2["sondar"].pop(k, None)
+                                elif r == "nao_editavel" and k in e2["sondar"]:
+                                    e2["sondar"][k] += 1
+                                    if e2["sondar"][k] >= 3:
+                                        e2["sondar"].pop(k, None)
+                                gravar_json(RESP_ESTADO, e2)
+                            if r in ("capturada", "outra"):
+                                resp_visto(mid)
+                            if r == "transitorio":
+                                break
+                            time.sleep(0.3)
+            STATUS["respostas_erro"] = None
+        except Exception as ex:
+            STATUS["respostas_erro"] = str(ex)[:200]
+            log(f"respostas: {ex}")
+        time.sleep(30)
 
 
 # ---------- Arquivo (viewer, SOMENTE LEITURA) ----------
@@ -942,7 +1104,8 @@ class Ponte(BaseHTTPRequestHandler):
             return self.responder(200, {"ok": True, "ponte": "ligada", "versao": VERSAO, "hora": agora(),
                                         "webhook_configurado": bool(c["webhook_url"]), "chave_presente": bool(ler_segredo(KEY)),
                                         "telegram": {"token_presente": bool(ler_segredo(TOKEN)), "chat_id_definido": bool(c["chat_id"]),
-                                                     "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"]},
+                                                     "ultimo_poll": STATUS["telegram_ultimo_poll"], "erro": STATUS["telegram_erro"],
+                                                     "respostas": {k: v for k, v in resp_estado().items() if k in ("max", "capturadas", "ultima")} | {"pendentes": len(resp_estado()["sondar"]), "erro": STATUS.get("respostas_erro")}},
                                         "obsidian": {"cofre_configurado": bool(cofre()[0]), "pasta": cofre()[1], "cofre_nome": os.path.basename(cofre()[0] or ""),
                                                      "notas_criadas": len(ler_json(OBS_INDICE, {})), "busca_erro": STATUS.get("busca_erro")},
                                         "transcricao_local": {"motor": "VoiceStudio (faster-whisper large-v3)", "ligado": vs_ligado(),
@@ -1015,6 +1178,7 @@ def main():
     srv = ThreadingHTTPServer(("127.0.0.1", porta), Ponte)
     threading.Thread(target=loop_telegram, daemon=True).start()
     threading.Thread(target=loop_stt, daemon=True).start()
+    threading.Thread(target=loop_respostas, daemon=True).start()
     try:
         n = esvaziar_fila_memoria()
         if n:
